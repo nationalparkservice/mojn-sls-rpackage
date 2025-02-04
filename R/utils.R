@@ -130,27 +130,6 @@ GetAGOLColSpec <- function() {
   return(col.spec)
 }
 
-#' Get column specifications for Aquarius database
-#'
-#' @return A list of column specifications for each table of Aquarius data.
-#'
-GetAquariusColSpec <- function() {
-  col.spec <- list(
-    TimeseriesDischarge = readr::cols(
-      DateTime = readr::col_datetime("%y-%m-%d %H:%M:%S %z"),
-      Value = readr::col_double(),
-      .default = readr::col_character()
-    ),
-    TimeseriesStage = readr::cols(
-      DateTime = readr::col_datetime("%y-%m-%d %H:%M:%S %z"),
-      Value = readr::col_double(),
-      .default = readr::col_character()
-    )
-  )
-  
-  return(col.spec)
-}
-
 #' Wrangle AGOL data into a set of dataframes structured for use in this package.
 #'
 #' @param agol_layers The list of tibbles returned by `FetchAGOLLayers()`
@@ -875,6 +854,27 @@ ReadAGOL <- function(data_path = c(main_db = "https://services1.arcgis.com/fBc8E
   data <- WrangleAGOLData(agol_layers)
   
   return(data)
+}
+
+#' Get column specifications for Aquarius database
+#'
+#' @return A list of column specifications for each table of Aquarius data.
+#'
+GetAquariusColSpec <- function() {
+  col.spec <- list(
+    TimeseriesDischarge = readr::cols(
+      DateTime = readr::col_datetime("%y-%m-%d %H:%M:%S %z"),
+      Value = readr::col_double(),
+      .default = readr::col_character()
+    ),
+    TimeseriesStage = readr::cols(
+      DateTime = readr::col_datetime("%y-%m-%d %H:%M:%S %z"),
+      Value = readr::col_double(),
+      .default = readr::col_character()
+    )
+  )
+  
+  return(col.spec)
 }
 
 #' Read data from the Aquarius database
