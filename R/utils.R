@@ -33,37 +33,7 @@ get_data <- function(data.name) {
   return(data)
 }
 
-#' Open a connection to Aquarius
-#'
-#' @return A database connection pool object
-#'
-#' @importFrom magrittr %>% %<>%
-#' @importFrom stats median
-#'
-#' @examples
-#' \dontrun{
-#' conn <- OpenDatabaseConnection()
-#' }
-OpenDatabaseConnection <- function() {
-#Connect to Aquarius
-  tryCatch({#fetchaquarius::connectToAquarius("aqreadonly", "aqreadonly")
-    timeseries$connect("https://aquarius.nps.gov/aquarius", "aqreadonly", "aqreadonly")
-    assign(x = "aq", value = timeseries, envir = pkg_globals)},
-    # aq <<- timeseries},
-    error = function(e) {
-      assign(x = "aq", value = NA, envir = pkg_globals)
-      # aq <<- NA
-      warning(paste("Could not connect to Aquarius. Verify that you are on the NPS network and that Aquarius is not down.", "Error message:", e, sep = "\n"))
-    }
-  )
-  
-  conn <- list(aquarius = get(x = "aq",
-                              envir = pkg_globals))
-  
-  return(conn)
-}
-
-#' Get column specifications for AGOL database
+#' Get column specifications for AGOL database.
 #'
 #' @return A list of column specifications for each table of Aquarius data.
 #'
@@ -128,6 +98,205 @@ GetAGOLColSpec <- function() {
   )
   
   return(col.spec)
+}
+
+#' Fetch tabular data from AGOL.
+#' 
+#' Retrieves tabular data from AGOL layers and tables, even when number of rows exceeds maximum record count.
+#'
+#' @param data_path Feature service URL
+#' @param layer_number Layer number
+#' @param token Authentication token (optional)
+#' @param geometry Include spatial data columns? Works with points, not tested with other geometry types
+#' @param where Query clause specifying a subset of rows (optional; defaults to all rows). See AGOL REST API documentation.
+#' @param outFields String indicating which fields to return (optional; defaults to all fields). See AGOL REST API documentation.
+#'
+#' @return A tibble
+#' @export
+#'
+fetchAllRecords <- function(data_path, layer_number, token, geometry = FALSE, where = "1=1", outFields = "*") {
+  result <- tibble::tibble()
+  exc_transfer <- TRUE
+  offset <- nrow(result)
+  
+  qry <- list(where = where,
+              outFields = outFields,
+              f = "JSON",
+              resultOffset = offset)
+  
+  if (!missing(token)) {
+    qry$token <- token
+  }
+  
+  while(exc_transfer) {
+    resp <- httr::GET(paste0(data_path, "/", layer_number, "/query"),
+                      query = qry)
+    
+    content <- jsonlite::fromJSON(httr::content(resp, type = "text", encoding = "UTF-8"))
+    
+    if ("exceededTransferLimit" %in% names(content)) {
+      exc_transfer <- content$exceededTransferLimit
+    } else {
+      exc_transfer <- FALSE
+    }
+    
+    if (geometry) {
+      partial_result <- cbind(content$features$attributes, content$features$geometry) %>%
+        dplyr::mutate(wkid = content$spatialReference$wkid) %>%
+        tibble::as_tibble()
+    } else {
+      partial_result <- tibble::as_tibble(content$features$attributes)
+    }
+    result <- rbind(result, partial_result)
+    offset <- nrow(result)
+    qry$resultOffset <- offset
+  }
+  return(result)
+}
+
+#' Read data from the Selected Large Springs AGOL feature layers. Returns the raw data in its current format on AGOL. Mostly used for data management purposes. 
+#'
+#' @param data_path URL to Desert Springs feature service on AGOL.
+#' @param lookup_path URL to feature service on AGOL containing Desert Springs lookup tables.
+#' @param sites_path URL to feature service on AGOL containing sites table
+#' @param calibration_path URL to feature service on AGOL containing calibration tables.
+#' @param agol_username Username of headless AGOL account with permissions to view the feature service.
+#' @param agol_password Password for headless AGOL account.
+#'
+#' @return A list of tibbles
+#' @export 
+#'
+FetchAGOLLayers <- function(quarterly_path = "", 
+                            biennial_path = "",
+                            wells_path = "",
+                            bmi_path = "",
+                            sites_path = "",
+                            calibration_path = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Calibration_Database/FeatureServer",
+                            lookup_path = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Lookup_Database/FeatureServer",
+                            agol_username = "mojn_data", agol_password = keyring::key_get(service = "AGOL", username = "mojn_data")) {
+  # Get a token with a headless account
+  token_resp <- httr::POST("https://nps.maps.arcgis.com/sharing/rest/generateToken",
+                           body = list(username = agol_username,
+                                       password = agol_password,
+                                       referer = 'https://irma.nps.gov',
+                                       f = 'json'),
+                           encode = "form")
+  agol_token <- jsonlite::fromJSON(httr::content(token_resp, type="text", encoding = "UTF-8"))
+  
+  agol_layers <- list()
+  
+  # Fetch sites table
+  agol_layers$sites <- fetchAllRecords(sites_path, 0, token = agol_token$token)
+  
+  # Fetch lookup tables from lookup feature service
+  lookup_names <- httr::GET(paste0(lookup_path, "/layers"),
+                            query = list(where="1=1",
+                                         outFields="*",
+                                         f="JSON",
+                                         token=agol_token$token))
+  lookup_names <- jsonlite::fromJSON(httr::content(lookup_names, type = "text", encoding = "UTF-8"))
+  lookup_names <- lookup_names$tables %>%
+    dplyr::select(id, name) %>%
+    dplyr::filter(grepl("MOJN_(Lookup|Ref)(_Lookup|_Ref)?_(DS|Shared)", name))  # (_Lookup|_Ref)? is to accommodate weirdly named Camera lookup - can be removed once fixed in AGOL
+  
+  lookup_layers <- lapply(lookup_names$id, function(id) {
+    df <- fetchAllRecords(lookup_path, id, token = agol_token$token)
+    return(df)
+  })
+  names(lookup_layers) <- lookup_names$name
+  
+  #Fetch calibration tables from calibration feature service
+  agol_layers$CalibrationSpCond <- fetchAllRecords(calibration_path, 3, token = agol_token$token)
+  
+  agol_layers$CalibrationpH <- fetchAllRecords(calibration_path, 4, token = agol_token$token)
+  
+  agol_layers$CalibrationDO <- fetchAllRecords(calibration_path, 5, token = agol_token$token)
+  
+  
+  # Fetch each layer in the DS feature service
+  
+  # ----- MOJN_DS_SpringVisit - visit-level data -----
+  agol_layers$visit <- fetchAllRecords(data_path, 0, token = agol_token$token) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles")) %>%
+    dplyr::mutate(DateTime = as.POSIXct(DateTime/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- Repeats - repeat photos -----
+  agol_layers$repeats <- fetchAllRecords(data_path, 1, token = agol_token$token, geometry = TRUE) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- InvasivePlants - invasive plant data -----
+  agol_layers$invasives <- fetchAllRecords(data_path, 2, token = agol_token$token, geometry = TRUE) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- Observers -----
+  agol_layers$observers <- fetchAllRecords(data_path, 3, token = agol_token$token) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- SensorRetrieval -----
+  agol_layers$sensor_retrieval <- fetchAllRecords(data_path, 4, token = agol_token$token) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- RepeatPhotos_Internal - repeat photos taken on internal device camera -----
+  agol_layers$repeats_int <- fetchAllRecords(data_path, 5, token = agol_token$token)
+  
+  # ----- RepeatPhotos_External - repeat photos taken on external camera -----
+  agol_layers$repeats_ext <- fetchAllRecords(data_path, 6, token = agol_token$token)
+  
+  # ----- FillTime - volumetric discharge fill time -----
+  agol_layers$fill_time <- fetchAllRecords(data_path, 7, token = agol_token$token) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- FlowModTypes - flow modifications observed -----
+  agol_layers$disturbance_flow_mod <- fetchAllRecords(data_path, 8, token = agol_token$token) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- WildlifeRepeat - wildlife observations -----
+  agol_layers$wildlife <- fetchAllRecords(data_path, 9, token = agol_token$token) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- VegImageRepeat - riparian veg photo data -----
+  agol_layers$riparian_veg  <- fetchAllRecords(data_path, 10, token = agol_token$token) %>%
+    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
+  
+  # ----- InternalCamera - riparian veg photos taken on internal device camera -----
+  agol_layers$riparian_veg_int <- fetchAllRecords(data_path, 11, token = agol_token$token)
+  
+  # ----- ExternalCameraFiles - riparian veg photos taken on external camera -----
+  agol_layers$riparian_veg_ext <- fetchAllRecords(data_path, 12, token = agol_token$token)
+  
+  # ----- InvImageRepeat - invasive veg photos taken on internal device camera -----
+  agol_layers$invasives_int <- fetchAllRecords(data_path, 13, token = agol_token$token)
+  
+  # ----- ExternalCameraFilesInv - invasive veg photos taken on external camera -----
+  agol_layers$invasives_ext <- fetchAllRecords(data_path, 14, token = agol_token$token)
+  
+  # ----- AdditionalPhotos2 - info about additional photos -----
+  agol_layers$additional_photos <- fetchAllRecords(data_path, 15, token = agol_token$token)
+  
+  # ----- AdditionalPhotoInternal - additional photos taken on internal camera -----
+  agol_layers$additional_photos_int <- fetchAllRecords(data_path, 16, token = agol_token$token)
+  
+  # ----- AddtionalPhotoExternal - additional photos taken on external camera -----
+  agol_layers$additional_photos_ext <- fetchAllRecords(data_path, 17, token = agol_token$token)
+  
+  agol_layers <- c(agol_layers, lookup_layers)
+  
+  agol_layers <- lapply(agol_layers, function(data_table) {
+    data_table <- data_table %>%
+      dplyr::mutate(dplyr::across(where(is.character), function(x) {
+        x %>%
+          utf8::utf8_encode() %>%  # Encode text as UTF-8 - this prevents a lot of parsing issues in R
+          trimws() %>%  # Trim leading and trailing whitespace
+          dplyr::na_if("")  # Replace empty strings with NA
+      }))
+    col_names <- names(data_table)
+    name_and_label <- grepl("(name)|(label)", col_names, ignore.case = TRUE)
+    names(data_table)[name_and_label] <- tolower(names(data_table[name_and_label]))
+    
+    return(data_table)
+  })
+  
+  return(agol_layers)
 }
 
 #' Wrangle AGOL data into a set of dataframes structured for use in this package.
@@ -643,214 +812,21 @@ WrangleAGOLData <- function(agol_layers) {
   return(data)
 }
 
-
-#' Read data from the Selected Large Springs AGOL feature layers. Returns the raw data in its current format on AGOL. Mostly used for data management purposes. 
-#'
-#' @param data_path URL to Desert Springs feature service on AGOL.
-#' @param lookup_path URL to feature service on AGOL containing Desert Springs lookup tables.
-#' @param sites_path URL to feature service on AGOL containing sites table
-#' @param calibration_path URL to feature service on AGOL containing calibration tables.
-#' @param agol_username Username of headless AGOL account with permissions to view the feature service.
-#' @param agol_password Password for headless AGOL account.
-#'
-#' @return A list of tibbles
-#' @export 
-#'
-FetchAGOLLayers <- function(data_path = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_DS_SpringVisit/FeatureServer",
-                            lookup_path = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Lookup_Database/FeatureServer",
-                            sites_path = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_DS_Sites_Master/FeatureServer",
-                            calibration_path = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Calibration_Database/FeatureServer",
-                            agol_username = "mojn_data", agol_password = keyring::key_get(service = "AGOL", username = "mojn_data")) {
-  # Get a token with a headless account
-  token_resp <- httr::POST("https://nps.maps.arcgis.com/sharing/rest/generateToken",
-                           body = list(username = agol_username,
-                                       password = agol_password,
-                                       referer = 'https://irma.nps.gov',
-                                       f = 'json'),
-                           encode = "form")
-  agol_token <- jsonlite::fromJSON(httr::content(token_resp, type="text", encoding = "UTF-8"))
-  
-  agol_layers <- list()
-  
-  # Fetch sites table
-  agol_layers$sites <- fetchAllRecords(sites_path, 0, token = agol_token$token)
-  
-  # Fetch lookup tables from lookup feature service
-  lookup_names <- httr::GET(paste0(lookup_path, "/layers"),
-                            query = list(where="1=1",
-                                         outFields="*",
-                                         f="JSON",
-                                         token=agol_token$token))
-  lookup_names <- jsonlite::fromJSON(httr::content(lookup_names, type = "text", encoding = "UTF-8"))
-  lookup_names <- lookup_names$tables %>%
-    dplyr::select(id, name) %>%
-    dplyr::filter(grepl("MOJN_(Lookup|Ref)(_Lookup|_Ref)?_(DS|Shared)", name))  # (_Lookup|_Ref)? is to accommodate weirdly named Camera lookup - can be removed once fixed in AGOL
-  
-  lookup_layers <- lapply(lookup_names$id, function(id) {
-    df <- fetchAllRecords(lookup_path, id, token = agol_token$token)
-    return(df)
-  })
-  names(lookup_layers) <- lookup_names$name
-  
-  #Fetch calibration tables from calibration feature service
-  agol_layers$CalibrationSpCond <- fetchAllRecords(calibration_path, 3, token = agol_token$token)
-  
-  agol_layers$CalibrationpH <- fetchAllRecords(calibration_path, 4, token = agol_token$token)
-  
-  agol_layers$CalibrationDO <- fetchAllRecords(calibration_path, 5, token = agol_token$token)
-  
-  
-  # Fetch each layer in the DS feature service
-  
-  # ----- MOJN_DS_SpringVisit - visit-level data -----
-  agol_layers$visit <- fetchAllRecords(data_path, 0, token = agol_token$token) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles")) %>%
-    dplyr::mutate(DateTime = as.POSIXct(DateTime/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- Repeats - repeat photos -----
-  agol_layers$repeats <- fetchAllRecords(data_path, 1, token = agol_token$token, geometry = TRUE) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- InvasivePlants - invasive plant data -----
-  agol_layers$invasives <- fetchAllRecords(data_path, 2, token = agol_token$token, geometry = TRUE) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- Observers -----
-  agol_layers$observers <- fetchAllRecords(data_path, 3, token = agol_token$token) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- SensorRetrieval -----
-  agol_layers$sensor_retrieval <- fetchAllRecords(data_path, 4, token = agol_token$token) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- RepeatPhotos_Internal - repeat photos taken on internal device camera -----
-  agol_layers$repeats_int <- fetchAllRecords(data_path, 5, token = agol_token$token)
-  
-  # ----- RepeatPhotos_External - repeat photos taken on external camera -----
-  agol_layers$repeats_ext <- fetchAllRecords(data_path, 6, token = agol_token$token)
-  
-  # ----- FillTime - volumetric discharge fill time -----
-  agol_layers$fill_time <- fetchAllRecords(data_path, 7, token = agol_token$token) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- FlowModTypes - flow modifications observed -----
-  agol_layers$disturbance_flow_mod <- fetchAllRecords(data_path, 8, token = agol_token$token) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- WildlifeRepeat - wildlife observations -----
-  agol_layers$wildlife <- fetchAllRecords(data_path, 9, token = agol_token$token) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- VegImageRepeat - riparian veg photo data -----
-  agol_layers$riparian_veg  <- fetchAllRecords(data_path, 10, token = agol_token$token) %>%
-    dplyr::mutate(EditDate = as.POSIXct(EditDate/1000, origin = "1970-01-01", tz = "America/Los_Angeles"))
-  
-  # ----- InternalCamera - riparian veg photos taken on internal device camera -----
-  agol_layers$riparian_veg_int <- fetchAllRecords(data_path, 11, token = agol_token$token)
-  
-  # ----- ExternalCameraFiles - riparian veg photos taken on external camera -----
-  agol_layers$riparian_veg_ext <- fetchAllRecords(data_path, 12, token = agol_token$token)
-  
-  # ----- InvImageRepeat - invasive veg photos taken on internal device camera -----
-  agol_layers$invasives_int <- fetchAllRecords(data_path, 13, token = agol_token$token)
-  
-  # ----- ExternalCameraFilesInv - invasive veg photos taken on external camera -----
-  agol_layers$invasives_ext <- fetchAllRecords(data_path, 14, token = agol_token$token)
-  
-  # ----- AdditionalPhotos2 - info about additional photos -----
-  agol_layers$additional_photos <- fetchAllRecords(data_path, 15, token = agol_token$token)
-  
-  # ----- AdditionalPhotoInternal - additional photos taken on internal camera -----
-  agol_layers$additional_photos_int <- fetchAllRecords(data_path, 16, token = agol_token$token)
-  
-  # ----- AddtionalPhotoExternal - additional photos taken on external camera -----
-  agol_layers$additional_photos_ext <- fetchAllRecords(data_path, 17, token = agol_token$token)
-  
-  agol_layers <- c(agol_layers, lookup_layers)
-  
-  agol_layers <- lapply(agol_layers, function(data_table) {
-    data_table <- data_table %>%
-      dplyr::mutate(dplyr::across(where(is.character), function(x) {
-        x %>%
-          utf8::utf8_encode() %>%  # Encode text as UTF-8 - this prevents a lot of parsing issues in R
-          trimws() %>%  # Trim leading and trailing whitespace
-          dplyr::na_if("")  # Replace empty strings with NA
-      }))
-    col_names <- names(data_table)
-    name_and_label <- grepl("(name)|(label)", col_names, ignore.case = TRUE)
-    names(data_table)[name_and_label] <- tolower(names(data_table[name_and_label]))
-    
-    return(data_table)
-  })
-  
-  return(agol_layers)
-}
-
-#' Fetch tabular data from AGOL
-#' 
-#' Retrieves tabular data from AGOL layers and tables, even when number of rows exceeds maximum record count.
-#'
-#' @param data_path Feature service URL
-#' @param layer_number Layer number
-#' @param token Authentication token (optional)
-#' @param geometry Include spatial data columns? Works with points, not tested with other geometry types
-#' @param where Query clause specifying a subset of rows (optional; defaults to all rows). See AGOL REST API documentation.
-#' @param outFields String indicating which fields to return (optional; defaults to all fields). See AGOL REST API documentation.
-#'
-#' @return A tibble
-#' @export
-#'
-fetchAllRecords <- function(data_path, layer_number, token, geometry = FALSE, where = "1=1", outFields = "*") {
-  result <- tibble::tibble()
-  exc_transfer <- TRUE
-  offset <- nrow(result)
-  
-  qry <- list(where = where,
-              outFields = outFields,
-              f = "JSON",
-              resultOffset = offset)
-  
-  if (!missing(token)) {
-    qry$token <- token
-  }
-  
-  while(exc_transfer) {
-    resp <- httr::GET(paste0(data_path, "/", layer_number, "/query"),
-                      query = qry)
-    
-    content <- jsonlite::fromJSON(httr::content(resp, type = "text", encoding = "UTF-8"))
-    
-    if ("exceededTransferLimit" %in% names(content)) {
-      exc_transfer <- content$exceededTransferLimit
-    } else {
-      exc_transfer <- FALSE
-    }
-    
-    if (geometry) {
-      partial_result <- cbind(content$features$attributes, content$features$geometry) %>%
-        dplyr::mutate(wkid = content$spatialReference$wkid) %>%
-        tibble::as_tibble()
-    } else {
-      partial_result <- tibble::as_tibble(content$features$attributes)
-    }
-    result <- rbind(result, partial_result)
-    offset <- nrow(result)
-    qry$resultOffset <- offset
-  }
-  return(result)
-}
-
-#' Read data from the Selected Large Springs AGOL feature layer
+#' Read data from the Selected Large Springs AGOL feature layer.
 #' 
 #' @inheritParams FetchAGOLLayers
 #' 
 #' @return A list of tibbles
 #'
-ReadAGOL <- function(data_path = c(main_db = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_DS_SpringVisit/FeatureServer", 
-                                   lookup_db = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Lookup_Database/FeatureServer", 
-                                   sites_db = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_DS_Sites_Master/FeatureServer",
-                                   calibration_db = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Calibration_Database/FeatureServer"), agol_username = "mojn_data", agol_password = rstudioapi::askForPassword(paste("Please enter the password for AGOL account", agol_username))) {
-  agol_layers <- FetchAGOLLayers(data_path[1], data_path[2], data_path[3], data_path[4], agol_username, agol_password)
+ReadAGOL <- function(data_path = c(quarterly_db = "", 
+                                   biennial_db = "",
+                                   wells_db = "",
+                                   bmi_db = "",
+                                   sites_db = "",
+                                   calibration_db = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Calibration_Database/FeatureServer",
+                                   lookup_path = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Lookup_Database/FeatureServer"),
+                     agol_username = "mojn_data", agol_password = rstudioapi::askForPassword(paste("Please enter the password for AGOL account", agol_username))) {
+  agol_layers <- FetchAGOLLayers(data_path[1], data_path[2], data_path[3], data_path[4], data_path[5], data_path[6], agol_username, agol_password)
   data <- WrangleAGOLData(agol_layers)
   
   return(data)
@@ -989,4 +965,165 @@ ReadCSV <- function(data_path) {
   
   names(data) <- names(col.spec)
   return(data)
+}
+
+#' Load raw data into package environment
+#' @description Run this function before you do anything else.
+#'
+#' @param data_path A path or URL to the data. Accepted inputs:
+#' * 6 URLs to the AGOL feature services containing the data (quarterly_db, biennial_db, wells_db, sites_db, calibration_db, and lookup_db)
+#' * a folder containing the data in csv format
+#' * a .zip file containing the data in csv format
+#' * `"database"` (connect to the deprecated SQL server database)
+#' @param use_default_sql Use default SQL database? Ignored if `data_path != "database"`.
+#' @param sql_drv Driver to use to connect to database. Ignored if `data_path != "database"`.
+#' @param ... Additional arguments to OpenDatabaseConnection (ignored if `data_path != "database"`)
+#'
+#' @return Invisibly return a list containing all raw data
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' LoadDesertSprings()  # Read from AGOL
+#' LoadDesertSprings("database")  # Read from SQL db
+#' LoadDesertSprings("path/to/csv/folder")  # Read from folder of CSV's
+#' LoadDesertSprings("path/to/zipped/csvs.zip")  # Read from zip file of CSV's
+#' }
+#'
+LoadDesertSprings <- function(data_path = c(quarterly_db = "", 
+                                            biennial_db = "",
+                                            wells_db = "",
+                                            bmi_db = "",
+                                            sites_db = "",
+                                            calibration_db = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Calibration_Database/FeatureServer",
+                                            lookup_path = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Lookup_Database/FeatureServer"), ...) {
+  
+  # Figure out the format of the data
+  agol_regex <- "^https:\\/\\/services1\\.arcgis\\.com\\/[^\\\\]+\\/arcgis\\/rest\\/services\\/[^\\\\]+\\/FeatureServer\\/?$"
+  is_agol <- grepl(agol_regex, data_path[1])
+  if (!is_agol) {
+    # Standardize data path
+    data_path <- normalizePath(data_path[1], mustWork = TRUE)
+  }
+  is_zip <- grepl("\\.zip$", data_path[1], ignore.case = TRUE) && file.exists(data_path[1])
+  is_folder <- dir.exists(data_path[1])
+  
+  if (is_agol) {  # Read from AGOL feature layer
+    data <- ReadAGOL(data_path)
+  } else if (is_zip | is_folder) {  # Read from folder of CSV's (may be zipped)
+    data <- ReadCSV(data_path[1])
+  } else {
+    stop(paste("Data path", data_path[1], "is invalid. See `?LoadDesertSprings` for more information."))
+  }
+  
+  # Tidy up the data
+  data <- lapply(data, function(df) {
+    df %>%
+      dplyr::mutate_if(is.character, utf8::utf8_encode) %>%
+      dplyr::mutate_if(is.character, trimws, whitespace = "[\\h\\v]") %>%  # Trim leading and trailing whitespace
+      dplyr::mutate_if(is.character, dplyr::na_if, "") %>%  # Replace empty strings with NA
+      dplyr::mutate_if(is.numeric, dplyr::na_if, -9999) %>%  # Replace -9999 or -999 with NA
+      dplyr::mutate_if(is.numeric, dplyr::na_if, -999) %>%
+      dplyr::mutate_if(is.character, dplyr::na_if, "NA") %>%  # Replace "NA" strings with NA
+      dplyr::mutate_if(is.character, stringr::str_replace_all, pattern = "[\\v]+", replacement = ";  ")  # Replace newlines with semicolons - reading certain newlines into R can cause problems
+  })
+  
+  # Actually load the data into an environment for the package to use
+  tbl_names <- names(data)
+  lapply(tbl_names, function(n) {assign(n, data[[n]], envir = pkg_globals)})
+  
+  invisible(data)
+}
+
+#' Read and filter data frame from package environment
+#' 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "LAKE_P_BLUE0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2019".
+#' @param data.name The name of the analysis view or the csv file containing the data. E.g. "CalibrationDO", "BMIMetrics". See details for full list of data name options.
+#'
+#' @return A tibble of filtered data.
+#'
+#' @details \code{data.name} options are: CalibrationDO, CalibrationpH, CalibrationSpCond, Site, Visit, WaterQualityDO, WaterQualitypH, WaterQualitySpCond, WaterQualityTemperature
+#'
+ReadAndFilterData <- function(park, site, field.season, data.name) {
+  filtered.data <- get_data(data.name)
+  
+  if (!missing(field.season)) {
+    field.season <- as.character(field.season)
+  }
+  
+  if (!missing(park)) {
+    filtered.data %<>%
+      dplyr::filter(Park %in% park) # Changed to allow filtering of multiple parks
+
+      if (nrow(filtered.data) == 0) {
+      warning(paste0(data.name, ": Data are not available for the park specified"))
+    }
+  }
+  
+  if (!missing(site) & nrow(filtered.data) > 0) {
+    filtered.data %<>%
+      dplyr::filter(SiteCode %in% site)
+    
+    if (nrow(filtered.data) == 0) {
+      warning(paste0(data.name, ": Data are not available for the site specified"))
+    }
+  }
+  
+  if ("FieldSeason" %in% names(filtered.data)) {
+    filtered.data %<>%
+      dplyr::mutate(FieldSeason = as.character(FieldSeason))
+  }
+  
+  if (!missing(field.season) & ("FieldSeason" %in% colnames(filtered.data)) & nrow(filtered.data) > 0) {
+    filtered.data %<>%
+      dplyr::filter(FieldSeason %in% field.season)
+    if (nrow(filtered.data) == 0) {
+      warning(paste0(data.name, ": Data are not available for one or more of the field seasons specified"))
+    }
+  }
+  
+  return(filtered.data)
+}
+
+#' Save desert springs analysis views as a set of .csv files
+#'
+#' 
+#' @param dest.folder The folder in which to save the .csv files.
+#' @param create.folders Should \code{dest.folder} be created automatically if it doesn't exist? Defaults to \code{FALSE}.
+#' @param overwrite Should existing data be automatically overwritten? Defaults to \code{FALSE}.
+#'
+#' @return None.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' LoadDesertSprings()
+#' SaveDataToCsv("C:/Users/myusername/Documents/R/desert-springs-data", TRUE, TRUE)
+#' }
+SaveDataToCsv <- function(dest.folder, create.folders = FALSE, overwrite = FALSE) {
+  analysis.views <- names(GetColSpec())
+  dest.folder <- file.path(dirname(dest.folder), basename(dest.folder)) # Get destination directory in a consistent format. Seems like there should be a better way to do this.
+  file.paths <- file.path(dest.folder, paste0(analysis.views, ".csv"))
+  
+  # Validate inputs
+  if (!dir.exists(dest.folder)) {
+    if (create.folders) {
+      dir.create(dest.folder, recursive = TRUE)
+    } else {
+      stop("Destination folder does not exist. To create it automatically, set create.folders to TRUE.")
+    }
+  }
+  
+  if (!overwrite & any(file.exists(file.paths))) {
+    stop("Saving data in the folder provided would overwrite existing data. To automatically overwrite existing data, set overwrite to TRUE.")
+  }
+  
+  # Write each analysis view in the database to csv
+  for (view.name in analysis.views) {
+    df <- ReadAndFilterData(data.name = view.name) %>%
+      dplyr::collect()
+    readr::write_csv(df, file.path(dest.folder, paste0(view.name, ".csv")), na = "", append = FALSE, col_names = TRUE)
+  }
 }
