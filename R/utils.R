@@ -206,7 +206,7 @@ WrangleAGOL <- function(...) {
     dplyr::rename(DateTime = StartTime,
                   Park = ParkCode,
                   SiteCode = SpringCode) |>
-    dplyr::select(Park, SiteCode, DateTime, FlowCondition, EstDischargeMethod, EstDischarge_L_per_sec, PercentFlowCaptured, TemperatureInstrument, pHInstrument, SpCondInstrument, DOInstrument, GageType, PTLoggerID, PTLoggerID_2, FlumeWeirNotes, OverallNotes)
+    dplyr::select(Park, SiteCode, DateTime, FlowCondition, EstDischargeMethod, EstDischarge_L_per_sec, ContainerVolume_L, PercentFlowCaptured, TemperatureInstrument, pHInstrument, SpCondInstrument, DOInstrument, GageType, PTLoggerID, PTLoggerID_2, FlumeWeirNotes, OverallNotes)
   
   
   # ----- PhotoQuarterly -----
@@ -471,7 +471,7 @@ ReadDataStore <- function(reference_id) {
 #'
 ReadLocal <- function(path) {
   
-  local <- "PH"
+  local <- "PH" # placeholder value
   
   return(local)
 }
@@ -513,13 +513,13 @@ LoadSelectedLargeSprings <- function(source = c("agol", "aquarius"),
 
   # Tidy up the data
   data <- lapply(data, function(df) {
-    df %>%
-      dplyr::mutate_if(is.character, utf8::utf8_encode) %>%
-      dplyr::mutate_if(is.character, trimws, whitespace = "[\\h\\v]") %>%  # Trim leading and trailing white space
-      dplyr::mutate_if(is.character, dplyr::na_if, "") %>%  # Replace empty strings with NA
-      dplyr::mutate_if(is.numeric, dplyr::na_if, -9999) %>%  # Replace -9999 or -999 with NA
-      dplyr::mutate_if(is.numeric, dplyr::na_if, -999) %>%
-      dplyr::mutate_if(is.character, dplyr::na_if, "NA") %>%  # Replace "NA" strings with NA
+    df |>
+      dplyr::mutate_if(is.character, utf8::utf8_encode) |>
+      dplyr::mutate_if(is.character, trimws, whitespace = "[\\h\\v]") |>  # Trim leading and trailing white space
+      dplyr::mutate_if(is.character, dplyr::na_if, "") |>  # Replace empty strings with NA
+      dplyr::mutate_if(is.numeric, dplyr::na_if, -9999) |>  # Replace -9999 or -999 with NA
+      dplyr::mutate_if(is.numeric, dplyr::na_if, -999) |>
+      dplyr::mutate_if(is.character, dplyr::na_if, "NA") |>  # Replace "NA" strings with NA
       dplyr::mutate_if(is.character, stringr::str_replace_all, pattern = "[\\v]+", replacement = ";  ")  # Replace newlines with semicolons - reading certain newlines into R can cause problems
   })
     
