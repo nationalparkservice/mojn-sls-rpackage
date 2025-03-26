@@ -126,7 +126,7 @@ gageReading <- function(park, field.season, site) {
   return(readingSorted)
 }
 
-#' Plot gage readings over time
+#' Plot staff gage readings over time
 #'
 #' @param park 
 #' @param field.season 
@@ -188,7 +188,7 @@ volumetricDischarge <- function(park, field.season, site) {
   return(dischargeCalculated)
 }
 
-#' Plot discharge readings over time
+#' Plot volumetric discharge readings over time
 #'
 #' @param park 
 #' @param field.season 
@@ -214,6 +214,114 @@ volumetricDischargePlot <- function(park, field.season, site) {
     ggplot2::labs(title = "",
                   x = "Year",
                   y = "Discharge (cfs)")+
+    ggplot2::scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
+    # ggplot2::scale_y_continuous(limits = c(0, NA)) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "bottom")
+  
+  return(plot)
+}
+
+#' Return continuous discharge values and grades from Aquarius for all sites
+#'
+#' @param park 
+#' @param field.season 
+#' @param site 
+#'
+#' @returns
+#' @export
+#'
+#' @examples
+dischargeContinuous <- function(park, field.season, site) {
+  dischargeImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesDischarge")
+
+  dischargeDaily <- dischargeImport
+
+  return(dischargeDaily)
+}
+
+#' Plot continuous discharge values from Aquarius for a single site
+#'
+#' @param park 
+#' @param field.season 
+#' @param site Mandatory.
+#'
+#' @returns
+#' @export
+#'
+#' @examples
+dischargeContinuousPlot <- function(park, field.season, site) {
+  dischargeDaily <- dischargeContinuous(park = park, field.season = field.season, site = site) # |>
+    # dplyr::filter(SiteCode == site)
+  
+  # dischargeVolumetric <- volumetricDischarge(park = park, field.season = field.season, site = site) |>
+  #   dplyr::filter(SiteCode == site)
+  
+  plot <- ggplot2::ggplot(data = dischargeDaily,
+                          ggplot2::aes(x = DateTime,
+                                       y = Value,
+                                       color = SiteCode,
+                                       group = cumsum(c(0, diff(DateTime) > 60)) # show gaps greater than 60 minutes
+                          )) + # add gaps to line in plot when visits were missed
+    ggplot2::geom_line(linewidth = 1) +
+    khroma::scale_color_bright() +
+    ggplot2::labs(title = "",
+                  x = "Year",
+                  y = "Discharge (cfs)")+
+    ggplot2::scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
+    # ggplot2::scale_y_continuous(limits = c(0, NA)) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "bottom")
+  
+  return(plot)
+}
+
+#' Return continuous stage values and grades from Aquarius for all sites
+#'
+#' @param park 
+#' @param field.season 
+#' @param site 
+#'
+#' @returns
+#' @export
+#'
+#' @examples
+stageContinuous <- function(park, field.season, site) {
+  stageImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesStage")
+
+  stageDaily <- stageImport
+  
+  return(stageDaily)
+}
+
+#' Plot continuous stage values from Aquarius for a single site
+#'
+#' @param park 
+#' @param field.season 
+#' @param site Mandatory.
+#'
+#' @returns
+#' @export
+#'
+#' @examples
+stageContinuousPlot <- function(park, field.season, site) {
+  stageDaily <- stageContinuous(park = park, field.season = field.season, site = site) |>
+    dplyr::filter(SiteCode == site)
+  
+  readingSorted <- gageReading(park = park, field.season = field.season, site = site) |>
+    dplyr::filter(SiteCode == site)
+  
+  plot <- ggplot2::ggplot(data = stageDaily,
+                          ggplot2::aes(x = DateTime,
+                                       y = Value,
+                                       color = SiteCode,
+                                       group = cumsum(c(0, diff(DateTime) > 3600)) # show gaps greater than 3600 seconds (1 hour)
+                          )) + # add gaps to line in plot when visits were missed
+    ggplot2::geom_line(linewidth = 1) +
+    khroma::scale_color_bright() +
+    ggplot2::labs(title = "",
+                  x = "Year",
+                  y = "Stage (ft)") +
     ggplot2::scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
     # ggplot2::scale_y_continuous(limits = c(0, NA)) +
     ggplot2::theme_bw() +
