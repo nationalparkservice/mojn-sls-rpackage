@@ -30,6 +30,7 @@ get_data <- function(data.name) {
                     "BMISpecies",
                     "BMIMetrics",
                     "BMIVisit",
+                    "ChemResults",
                     "CalibrationSpCond",
                     "CalibrationpH",
                     "CalibrationDO",
@@ -66,6 +67,7 @@ ReadAGOL <- function(agol_username = "mojn_data", agol_password = keyring::key_g
   biennial_url <- "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/service_3b813173a71c4f41b5a3a02064bf361c/FeatureServer"
   well_url <- "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/service_2e96791d903b4698925bd961b3e65b8f/FeatureServer"
   bmi_url <- "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_HYDRO_BMI_Database/FeatureServer"
+  chem_url <- "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_SLS_Chemistry_Database/FeatureServer"
   calibration_url = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Calibration_Database/FeatureServer"
   lookup_url = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/MOJN_Lookup_Database/FeatureServer"
   
@@ -109,6 +111,13 @@ ReadAGOL <- function(agol_username = "mojn_data", agol_password = keyring::key_g
   bmi$data[['BMI_Metadata']] <- NULL
   names(bmi$data) <- c("BMISpecies", "BMIMetrics", "BMIVisit")
   
+  # Import chem feature service
+  chem <- fetchagol::fetchRawData(chem_url, agol_username, agol_password)
+  chem <- fetchagol::cleanData(chem)
+
+  chem$data[['DummySpatialLayer']] <- NULL
+  names(chem$data) <- c("ChemResults")
+  
   # Import lookup feature service
   lookup <- fetchagol::fetchRawData(lookup_url, agol_username, agol_password)
   lookup <- fetchagol::cleanData(lookup)
@@ -117,18 +126,17 @@ ReadAGOL <- function(agol_username = "mojn_data", agol_password = keyring::key_g
   
   bmi$data <- lapply(bmi$data, function(df) {
     df |>
-      dplyr::filter(Project %in% c("SLS")) # |>
-      # dplyr::mutate(CollectionDate = as.Date(CollectionDateText, tz = "America/Los_Angeles"))
+      dplyr::filter(Project %in% c("SLS")) |>
+      dplyr::mutate(CollectionDate = as.Date(CollectionDateText, tz = "America/Los_Angeles"))
   })
   
   # Import water quality instrument calibration feature service
   calibration <- fetchagol::fetchRawData(calibration_url, agol_username, agol_password)
   calibration <- fetchagol::cleanData(calibration)
   
-  agol_layers <- c(sites$data, subsites$data, quarterly$data, biennial$data, well$data, bmi$data, calibration$data)
+  agol_layers <- c(sites$data, subsites$data, quarterly$data, biennial$data, well$data, bmi$data, chem$data, calibration$data)
   
   return(agol_layers)
-  
 }
 
 #' Wrangle data from AGOL
@@ -153,6 +161,16 @@ WrangleAGOL <- function(...) {
                   Park = ParkCode,
                   SiteCode = SpringCode) |>
     dplyr::select(Park, SiteCode, DateTime, globalid)
+  
+  visit_b_info_chem <- agol_layers$VisitBiennial |>
+    dplyr::mutate(StartTime = as.POSIXct(StartTime/1000, origin = "1970-01-01", tz = "America/Los_Angeles")) |>
+    dplyr::rename(DateTime = StartTime,
+                  Park = ParkCode,
+                  SiteCode = SpringCode) |>
+    dplyr::select(Park, SiteCode, ChemLocation, DateTime, ChemMethod, ChemNotes, globalid)
+  
+  visit_b_info_chem_intermediate <- agol_layers$ChemSample |>
+    dplyr::select(globalid, parentglobalid, SampleType)
   
   visit_w_info <- agol_layers$VisitWell |>
     dplyr::mutate(StartTime = as.POSIXct(StartTime/1000, origin = "1970-01-01", tz = "America/Los_Angeles")) |>
@@ -298,8 +316,13 @@ WrangleAGOL <- function(...) {
   # ----- ChemSample -----
   
   agol_layers$ChemSample <- agol_layers$ChemSample |>
-    dplyr::left_join(visit_b_info, by = c("parentglobalid" = "globalid")) |>
-    dplyr::select(Park, SiteCode, DateTime, CollectionTime, ChemSampleType, ChemNumBottles)
+    dplyr::left_join(visit_b_info_chem, by = c("parentglobalid" = "globalid")) |>
+    dplyr::select(Park, SiteCode, ChemLocation, DateTime, SampleType, ChemMethod, bottleCount_Unfiltered, bottleCount_Filtered, laboratory, lab_number, ChemNotes) |>
+    dplyr::rename(UnfilteredBottles = bottleCount_Unfiltered,
+                  FilteredBottles = bottleCount_Filtered,
+                  LabName = laboratory,
+                  LabSampleID = lab_number,
+                  SubsiteCode_Chem = ChemLocation)
   
   # ----- VisitWell -----
   
@@ -333,6 +356,7 @@ WrangleAGOL <- function(...) {
   # ----- BMISpecies -----
   
   agol_layers$BMISpecies <- agol_layers$BMISpecies |>
+    
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup,
                   Order = Order_) |>
@@ -341,6 +365,7 @@ WrangleAGOL <- function(...) {
   # ----- BMIMetrics -----
   
   agol_layers$BMIMetrics <- agol_layers$BMIMetrics |>
+    
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup) |>
     dplyr::select(SampleID, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, AnalysisType, InvasiveSpeciesList, Attribute, Value)
@@ -352,6 +377,36 @@ WrangleAGOL <- function(...) {
     dplyr::rename(SiteCode = SiteGroup) |>
     dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, VisitType, AnalysisType, SamplerType, Habitat, Ecosystem, Area, FieldSplit, LabSplit, SplitCount, FieldNotes, LabNotes)
   
+  # ----- ChemResults -----
+  
+  agol_layers$ChemResults <- agol_layers$ChemResults |>
+    dplyr::mutate(dateCollection = as.POSIXct(dateCollection/1000, origin = "1970-01-01", tz = "UTC"),
+                  dateDelivery = as.POSIXct(dateDelivery/1000, origin = "1970-01-01", tz = "UTC"),
+                  dateProcessing = as.POSIXct(dateProcessing/1000, origin = "1970-01-01", tz = "UTC")) |>
+    dplyr::mutate(dateCollection = as.Date(dateCollection),
+                  dateDelivery = as.Date(dateDelivery),
+                  dateProcessing = as.Date(dateProcessing)) |>
+    dplyr::left_join(visit_b_info_chem_intermediate, by = c("parentglobalid" = "globalid")) |>
+    dplyr::left_join(visit_b_info_chem, by = c("parentglobalid.y" = "globalid")) |>
+    dplyr::mutate(DateTime = as.Date(DateTime, tz = "America/Los_Angeles")) |>
+    dplyr::mutate(FieldSeason = format(DateTime, "%Y")) |>
+    dplyr::select(Park, SiteCode, ChemLocation, DateTime, FieldSeason, dateProcessing, SampleType, analysisType, characteristic, unit, value, belowDetectionLimit, qa_within_precision_limits, qa_description, qualifications) |>
+    dplyr::rename(AnalysisType = analysisType,
+                  Characteristic = characteristic,
+                  Unit = unit,
+                  Value = value,
+                  BelowDL = belowDetectionLimit,
+                  WithinPrecision = qa_within_precision_limits,
+                  PrecisionNotes = qa_description,
+                  Flag = qualifications,
+                  SubsiteCode_Chem = ChemLocation,
+                  DateProcessed = dateProcessing,
+                  VisitDate = DateTime) |>
+    dplyr::mutate(AnalysisType = dplyr::case_when(AnalysisType == "routine" ~ "Routine",
+                                                  AnalysisType == "duplicate" ~ "Duplicate",
+                                                  AnalysisType == "triplicate" ~ "Triplicate",
+                                                  TRUE ~ AnalysisType))
+    
   # ----- CalibrationSpCond -----
   
   agol_layers$CalibrationSpCond <- agol_layers$CalibrationSpCond |>
