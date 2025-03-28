@@ -4,12 +4,12 @@
 #' @export
 #'
 getMDLLookup <- function() {
-  lookup <- tibble::tibble(Characteristic = c("ALK2", "Ca", "DOC", "Cl", "Mg", "NO3NO2-N", "UTN", "UTP", "K", "Na", "SO4-S"),
-                           Unit = c("mg CaCO3/L", "mg/L", "mg C/L", "mg/L", "mg/L", "mg N/L", "mg N/L", "mg P/L", "mg/L", "mg/L", "mg S/L"),
-                           StartYear = c(2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009),
-                           EndYear = c(2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025),
-                           MDL = c(0.2, 0.06, 0.05, 0.01, 0.02, 0.001, 0.01, 0.002, 0.03, 0.01, 0.01),
-                           ML = c(0.6, 0.19, 0.16, 0.03, 0.06, 0.003, 0.03, 0.006, 0.10, 0.03, 0.03))
+  lookup <- tibble::tibble(Characteristic = c("ALK2", "Ca", "DOC", "Cl", "Mg", "NO3-N+NO2-N", "NO3-N", "UTN", "UTP", "K", "Na", "SO4-S"),
+                           Unit = c("mg CaCO3/L", "mg/L", "mg C/L", "mg/L", "mg/L", "mg N/L", "mg N/L", "mg N/L", "mg P/L", "mg/L", "mg/L", "mg S/L"),
+                           StartYear = c(2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009, 2009),
+                           EndYear = c(2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025, 2025),
+                           MDL = c(0.2, 0.06, 0.05, 0.01, 0.02, 0.001, 0.001, 0.01, 0.002, 0.03, 0.01, 0.01),
+                           ML = c(0.6, 0.19, 0.16, 0.03, 0.06, 0.003, 0.003, 0.03, 0.006, 0.10, 0.03, 0.03))
   
   return(lookup)
 }
@@ -286,7 +286,7 @@ chemTDPCheck <- function(park, site, field.season) {
   return(TDPList)
 }
 
-#' Calculate acid neutralizing capacity (ANC) from alkalinity
+#' OBSOLETE FUNCTION. ANC CALCULATION NOW DONE IN AGOL PRIOR TO EXPORT: Calculate acid neutralizing capacity (ANC) from alkalinity
 #'
 #' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
 #' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
@@ -314,6 +314,24 @@ chemANC <- function(park, site, field.season) {
   return(joinedANC)
 }
 
+chemRatios <- function(park, site, field.season) {
+  chem <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "ChemResults")
+  
+  ratios <- chem |>
+    dplyr::filter(Characteristic %in% c("UTN", "TDN", "NO3-N+NO2-N", "NO3-N", "UTP", "TDP", "DOC"),
+                  SampleType == "Routine",
+                  AnalysisType == "Routine") |>
+    dplyr::mutate(Characteristic = dplyr::case_when(Characteristic == "NO3-N+NO2-N" ~ "DIN",
+                                                    Characteristic == "NO3-N" ~ "DIN",
+                                                    TRUE ~ Characteristic)) |>
+    dplyr::select(-c("SampleType", "AnalysisType", "DateProcessed", "Unit", "BelowDL", "WithinPrecision", "PrecisionNotes", "Flag")) |>
+    tidyr::pivot_wider(names_from = Characteristic, values_from = Value) |>
+    dplyr::mutate(`DIN:TP` = DIN/UTP,
+                  `TN:TP` = UTN/UTP)
+    
+}
+
+
 #' Format missing years with NAs for ease of plotting
 #'
 #' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
@@ -325,9 +343,9 @@ chemANC <- function(park, site, field.season) {
 #'
 #' @examples
 chemFormatted <- function(park, site, field.season) {
-  joinedANC <- chemANC(park = park, site = site, field.season = field.season)
+  chem <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "ChemResults")
   
-  chemYear <- joinedANC |>
+  chemYear <- chem |>
     dplyr::mutate(Year = as.integer(FieldSeason))
   
   min.year <- min(chemYear$Year)
@@ -368,15 +386,17 @@ chemANCPlot <- function(park, site, field.season) {
   
   plotANC <- ggplot2::ggplot(chemANC,
                              ggplot2::aes(x = SiteCode,
-                             y = Value,
-                             color = Park)) +
-    ggplot2::geom_boxplot() +
+                                          y = Value,
+                                          color = Park,
+                                          fill = Park)) +
+    ggplot2::geom_boxplot(alpha = 0.2) +
     ggplot2::geom_point() +
     #ggplot2::geom_line(linewidth = 1) +
     #ggplot2::facet_grid(~Park, scales = "free_x") +
     ggplot2::ylab(label = "Acid Neutralizing Capacity (ueq/L)") +
+    ggplot2::theme_bw() +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)) +
-    ggplot2::labs(title = "Acid Neutralizing Capacity (ANC)") +
+    ggplot2::labs(title = "Acid neutralizing capacity (ANC)") +
     ggplot2::scale_y_continuous(breaks = scales::pretty_breaks(), limits = c(0, NA)) +
     ggplot2::geom_hline(yintercept = c(20, 50, 100, 200), linetype = "dashed", color = "gray 20") +
     ggplot2::annotate("text", x = 1, y = 200, label = "Moderate", vjust = 1) +
@@ -384,7 +404,8 @@ chemANCPlot <- function(park, site, field.season) {
     ggplot2::annotate("text", x = 1, y = 50, label = "Severe", vjust = 1) +
     ggplot2::annotate("text", x = 1, y = 20, label = "Acute", vjust = 1) +
     #ggplot2::scale_x_discrete(breaks = scales::pretty_breaks()) +
-    khroma::scale_color_muted()
+    khroma::scale_color_muted() +
+    khroma::scale_fill_muted()
   
   return(plotANC)
 }
@@ -400,7 +421,49 @@ chemANCPlot <- function(park, site, field.season) {
 #'
 #' @examples
 chemIonsPlot <- function(park, site, field.season) {
+  chemFormatted <- chemFormatted(park = park, site = site, field.season = field.season)
   
+  ion <- chemFormatted |>
+    dplyr::filter(Characteristic %in% c("Na", "K", "Ca", "Mg", "SO4-S", "Cl")) |>
+    dplyr::mutate(Characteristic = dplyr::case_when(Characteristic == "SO4-S" ~ "SO4",
+                                                    TRUE ~ Characteristic)) |>
+    dplyr::mutate(Ion = ifelse(Characteristic %in% c("Na", "K", "Ca", "Mg"), "Cation",
+                               ifelse(Characteristic %in% c("SO4", "Cl"), "Anion", NA)))
+  
+  ion$Ion_f = factor(ion$Ion, levels = c("Cation", "Anion"))
+  ion$Characteristic_f = factor(ion$Characteristic, levels = c("Na", "K", "Ca", "Mg", "Cl", "SO4"))
+  
+  ionPlot <- ggplot2::ggplot(ion |> dplyr::filter(Park %in% c("JOTR", "LAKE", "MOJA")),
+                             ggplot2::aes(x = FieldSeason,
+                                          y = Value,
+                                          color = Characteristic_f,
+                                          group = Characteristic_f,
+                                          text = paste0("Site Code: ", SiteCode, "<br>",
+                                                        "Year: ", FieldSeason, "<br>",
+                                                        "Parameter: ", Characteristic_f, "<br>",
+                                                        "Value: ", Value))) +
+    # ggplot2::geom_line(linewidth = 1) +
+    ggplot2::geom_point(size = 3) +
+    # ggplot2::geom_bar(stat = "identity",
+    #                   position = ggplot2::position_dodge2(preserve = "single")) +
+    ggplot2::facet_grid(rows = ggplot2::vars(Characteristic_f),
+                        cols = ggplot2::vars(SiteCode),
+                        scales = "free",
+                        space = "free_x") +
+    ggplot2::theme_bw() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)) +
+    ggplot2::labs(title = "Common ion concentrations",
+                  x = "Year",
+                  y = "Concentration (mg/L)",
+                  color = "Ion") +
+    ggplot2::scale_y_continuous(breaks = scales::pretty_breaks(), limits = c(0, NA)) +
+    ggplot2::scale_x_discrete(breaks = scales::pretty_breaks()) +
+    khroma::scale_color_muted() +
+    #ggplot2::scale_fill_manual(values = c("midnightblue", "royalblue1", "lightskyblue", "firebrick4", "lightpink2", "goldenrod")) +
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::guides(color = ggplot2::guide_legend(nrow = 1))
+  
+  return(ionPlot)
 }
 
 #' Plot common ion concentrations (Na, Mg, K, Ca, SO4, Cl) on separate plots
@@ -414,7 +477,49 @@ chemIonsPlot <- function(park, site, field.season) {
 #'
 #' @examples
 chemIonsSplitPlot <- function(park, site, field.season) {
+  chemFormatted <- chemFormatted(park = park, site = site, field.season = field.season)
   
+  ion <- chemFormatted |>
+    dplyr::filter(Characteristic %in% c("Na", "K", "Ca", "Mg", "SO4-S", "Cl")) |>
+    dplyr::mutate(Characteristic = dplyr::case_when(Characteristic == "SO4-S" ~ "SO4",
+                                                    TRUE ~ Characteristic)) |>
+    dplyr::mutate(Ion = ifelse(Characteristic %in% c("Na", "K", "Ca", "Mg"), "Cation",
+                               ifelse(Characteristic %in% c("SO4", "Cl"), "Anion", NA)))
+  
+  ion$Ion_f = factor(ion$Ion, levels = c("Cation", "Anion"))
+  ion$Characteristic_f = factor(ion$Characteristic, levels = c("Na", "K", "Ca", "Mg", "Cl", "SO4"))
+  
+  ionPlot <- ggplot2::ggplot(ion,
+                             ggplot2::aes(x = FieldSeason,
+                                          y = Value,
+                                          #color = Characteristic_f,
+                                          group = Characteristic_f,
+                                          text = paste0("Site Code: ", SiteCode, "<br>",
+                                                        "Year: ", FieldSeason, "<br>",
+                                                        "Parameter: ", Characteristic_f, "<br>",
+                                                        "Value: ", Value))) +
+    ggplot2::geom_line(linewidth = 1) +
+    ggplot2::geom_point() +
+    # ggplot2::geom_bar(stat = "identity",
+    #                   position = ggplot2::position_dodge2(preserve = "single")) +
+    ggplot2::facet_grid(rows = ggplot2::vars(Characteristic_f),
+                        cols = ggplot2::vars(SiteCode),
+                        scales = "free",
+                        space = "free_x") +
+    ggplot2::theme_bw() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)) +
+    ggplot2::labs(title = "Common ion concentrations",
+                  x = "Year",
+                  y = "Concentration (mg/L)",
+                  color = "Ion") +
+    ggplot2::scale_y_continuous(breaks = scales::pretty_breaks(), limits = c(0, NA)) +
+    ggplot2::scale_x_discrete(breaks = scales::pretty_breaks())
+    #khroma::scale_color_muted() +
+    #ggplot2::scale_fill_manual(values = c("midnightblue", "royalblue1", "lightskyblue", "firebrick4", "lightpink2", "goldenrod")) +
+    #ggplot2::theme(legend.position = "bottom") +
+    #ggplot2::guides(color = ggplot2::guide_legend(nrow = 1))
+  
+  return(ionPlot)
 }
 
 #' Plot nutrient concentrations (UTN, TDN, NO3, UTP, TDP, DOC)
@@ -443,33 +548,31 @@ chemNutrientsPlot <- function(park, site, field.season) {
   nutrient$Characteristic_f = factor(nutrient$Characteristic, levels = c("UTN", "TDN", "NO3", "UTP", "TDP", "DOC"))
   
   nutrientPlot <- ggplot2::ggplot(nutrient,
-                                   ggplot2::aes(x = FieldSeason,
-                                                y = Value,
-                                                fill = Characteristic_f,
-                                                group = Characteristic_f,
-                                                text = paste0("Site Name: ", SiteCode, "<br>",
-                                                              "Field Season: ", FieldSeason, "<br>",
-                                                              "Parameter: ", Characteristic_f, "<br>",
-                                                              "Lab Value: ", Value))) +
+                                  ggplot2::aes(x = FieldSeason,
+                                               y = Value,
+                                               fill = Characteristic_f,
+                                               group = Characteristic_f,
+                                               text = paste0("Site Code: ", SiteCode, "<br>",
+                                                             "Year: ", FieldSeason, "<br>",
+                                                             "Parameter: ", Characteristic_f, "<br>",
+                                                             "Value: ", Value))) +
     ggplot2::geom_bar(stat = "identity",
-                      width = 2,
-                      position = ggplot2::position_dodge(width = 2,
-                                                         preserve = "single")) +
-    #ggplot2::geom_point() +
-    #ggplot2::geom_line(linewidth = 1) +
+                      position = ggplot2::position_dodge2(preserve = "single")) +
     ggplot2::facet_grid(rows = ggplot2::vars(Nutrient_f),
                         cols = ggplot2::vars(SiteCode),
-                        scales = "free_y",
+                        scales = "free",
                         space = "free_x") +
-    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90)) +
-    ggplot2::labs(title = "Lake nutrient concentrations",
-                  x = "Field Season",
+    ggplot2::theme_bw() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)) +
+    ggplot2::labs(title = "Nutrient concentrations",
+                  x = "Year",
                   y = "Concentration (mg/L)",
-                  color = "Nutrient") +
+                  fill = "Nutrient") +
     ggplot2::scale_y_continuous(breaks = scales::pretty_breaks(), limits = c(0, NA)) +
     ggplot2::scale_x_discrete(breaks = scales::pretty_breaks()) +
     ggplot2::scale_fill_manual(values = c("midnightblue", "royalblue1", "lightskyblue", "firebrick4", "lightpink2", "goldenrod")) +
-    ggplot2::theme(legend.position = "bottom")
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1))
   
   return(nutrientPlot)
 }
