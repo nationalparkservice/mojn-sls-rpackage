@@ -443,6 +443,8 @@ WrangleAGOL <- function(...) {
 #'
 ReadAquarius <- function(username = "aqreadonly", password = "aqreadonly") {
 
+  if(file.exists("R//timeseries_client.R")) {
+  
   timeseries$connect("https://aquarius.nps.gov/aquarius", username, password)
   
   data <- list()
@@ -499,7 +501,9 @@ ReadAquarius <- function(username = "aqreadonly", password = "aqreadonly") {
                                          lubridate::year(DateTime),
                                          lubridate::year(DateTime) + 1))
   })
-  
+  } else {
+  aquarius <- NULL  
+  }
   return(aquarius)
 }
 
