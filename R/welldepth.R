@@ -72,7 +72,136 @@ wellDepthPlot <- function(park, field.season, site) {
     # ggplot2::scale_y_continuous(limits = c(0, NA)) +
     ggplot2::theme_bw() +
     ggplot2::theme(legend.position = "bottom") +
-    ggplot2::scale_y_reverse()
+    ggplot2::scale_y_reverse() +
+    ggplot2::facet_grid(Park~.,
+                        scale = "free_y")
+  
+  return(plot)
+}
+
+#' Return continuous well depth values and grades from Aquarius for all sites
+#'
+#' @param park Mandatory, e.g., "GRBA"
+#' @param field.season Optional, e.g., c("2017", "2019", "2020")
+#' @param site Optional, e.g., "LAKE_W_ROGE0"
+#'
+#' @returns Tibble
+#' @export
+#'
+#' @examples
+depthContinuous <- function(park, field.season, site) {
+  depthImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesDepth")
+  
+  depthGap <- depthImport |>
+    dplyr::group_by(Park, SiteCode) |>
+    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "hours") > 1)), "_", SiteCode)) |>
+    dplyr::ungroup() |>
+    dplyr::select(Park, SiteCode, DateTime, FieldSeason, Value, Grade, Approval, Gap)
+  
+  return(depthGap)
+}
+
+
+#' Plot continuous well depth values from Aquarius
+#'
+#' @param park Mandatory, e.g., "GRBA"
+#' @param field.season Optional, e.g., c("2017", "2019", "2020")
+#' @param site Optional, e.g., "LAKE_W_ROGE0"
+#'
+#' @returns ggplot object
+#' @export
+#'
+#' @examples
+depthContinuousPlot <- function(park, field.season, site) {
+  depthContinuous <- depthContinuous()
+
+  plot <- ggplot2::ggplot(data = depthGap,
+                          ggplot2::aes(x = DateTime,
+                                       y = Value,
+                                       color = SiteCode,
+                                       group = Gap
+                          )) + # add gaps to line in plot when visits were missed
+    ggplot2::geom_line(linewidth = 1) +
+    khroma::scale_color_bright() +
+    ggplot2::labs(title = "",
+                  x = "Year",
+                  y = "Depth to water from ground surface (ft)") +
+    ggplot2::scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
+    ggplot2::scale_y_reverse() +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::facet_grid(.~Park)
+  
+  return(plot)
+}
+
+#' Return discrete well depth readings for Aquarius and Survey123 entries
+#'
+#' @param park Optional. Four-letter park code to filter on, e.g. "GRBA".
+#' @param site Optional. Site code to filter on, e.g. "GRBA_W_BAKR0_DP1".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
+#'
+#' @returns Tibble
+#' @export
+#'
+#' @examples
+wellComparison <- function(park, field.season, site) {
+  wellDepth <- wellDepth(park = park, field.season = field.season, site = site)
+  fieldVisit <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesFieldVisit") |>
+    dplyr::relocate(Unit, .after = MonitoringMethod)
+
+  aquarius <- fieldVisit |>
+    dplyr::select(Park, SiteCode, DateTime, Parameter, Unit, Value) |>
+    dplyr::mutate(Source = "Aquarius") |>
+    dplyr::filter(Parameter %in% c("DepthToWaterFromGround", "Water Level"))
+  
+  survey <- wellDepth |>
+    dplyr::rename(Value = WLBelowLSD_ft) |>
+    dplyr::mutate(Unit = "ft",
+                  Source = "Survey",
+                  Parameter = "DepthToWaterFromGround") |>
+    dplyr::select(Park, SiteCode, DateTime, Parameter, Unit, Value, Source)
+  
+  discrete <- rbind(survey, aquarius)
+  
+  return(discrete)
+}
+
+#' Plot discrete well depth values for Aquarius and Survey123 entries
+#'
+#' @param park Optional. Four-letter park code to filter on, e.g. "GRBA".
+#' @param site Optional. Site code to filter on, e.g. "GRBA_W_BAKR0_DP1".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
+#'
+#' @returns ggplot object
+#' @export
+#'
+#' @examples
+discreteWellComparisonPlot <- function(park, field.season, site) {
+  wellData <- wellComparison(park = park, field.season = field.season, site = site) |>
+    dplyr::filter(Parameter %in% c("DepthToWaterFromGround"))
+  
+  plot <- ggplot2::ggplot(wellData,
+                          ggplot2::aes(x = DateTime,
+                                       y = Value,
+                                       color = Source,
+                                       shape = Source)) +
+    ggplot2::geom_point(size = 2.5) +
+    ggplot2::geom_line(linewidth = 0.8) +
+    ggplot2::facet_grid(SiteCode~Parameter,
+                        scales = "free_y") +
+    ggplot2::theme_bw() + 
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)) +
+    ggplot2::labs(title = "Comparison of Aquarius and Survey123 discharge measurements",
+                  x = "Year",
+                  y = "Discharge (ft)",
+                  color = "Source") +
+    ggplot2::scale_y_continuous(breaks = scales::pretty_breaks()) +
+    ggplot2::scale_x_datetime(date_breaks = "1 year",
+                              date_labels = "%Y") +
+    khroma::scale_color_muted() +
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1))
   
   return(plot)
 }
