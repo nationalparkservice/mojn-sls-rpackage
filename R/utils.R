@@ -35,7 +35,10 @@ get_data <- function(data.name) {
                     "CalibrationpH",
                     "CalibrationDO",
                     "TimeseriesDischarge",
-                    "TimeseriesStage")
+                    "TimeseriesStage",
+                    "TimeseriesDepth",
+                    "TimeseriesFieldVisit",
+                    "TimeseriesVolumetric")
   
   if (!missing(data.name)) {
     if (!(data.name %in% tibble_names)) {
@@ -450,9 +453,15 @@ ReadAquarius <- function(username = "aqreadonly", password = "aqreadonly") {
   data <- list()
   q_data <- tibble::tibble()
   stage_data <- tibble::tibble()
+  depth_data <- tibble::tibble()
+  discrete_data <- tibble::tibble()
+  volumetric_data <- tibble::tibble()
   
   discharge <- c("LAKE_P_BLUE0", "PARA_P_PAKO0")
   stage <- c("LAKE_P_BLUE0", "MOJA_P_MCSP0", "PARA_P_PAKO0")
+  depth <- c("GRBA_W_BAKR0_DP1", "GRBA_W_BAKR0_OC2", "GRBA_W_BAKR0_SH3", "GRBA_W_BGID0")
+  discrete <- c("LAKE_P_BLUE0", "MOJA_P_MCSP0", "PARA_P_PAKO0", "LAKE_W_ROGE0", "GRBA_W_BAKR0_DP1", "GRBA_W_BAKR0_OC2", "GRBA_W_BAKR0_SH3", "GRBA_W_BGID0")
+  volumetric <- c("LAKE_P_BLUE0")
   
   for (location in discharge) {
     site.imp <- timeseries$getTimeSeriesData(paste0("Discharge.Cumulative@", location))
@@ -491,7 +500,72 @@ ReadAquarius <- function(username = "aqreadonly", password = "aqreadonly") {
   stage_data <- list(stage_data)
   names(stage_data) <- "TimeseriesStage"
   
-  aquarius <- c(q_data, stage_data)
+  for (location in depth) {
+    site.imp <- timeseries$getTimeSeriesData(paste0("DepthToWaterFromGround.Corrected@", location))
+    site.data <- site.imp$Points |>
+      dplyr::select(Timestamp, NumericValue1, GradeName1, ApprovalName1) |>
+      dplyr::rename(Value = NumericValue1,
+                    Grade = GradeName1,
+                    Approval = ApprovalName1,
+                    DateTime = Timestamp) |>
+      dplyr::mutate(SiteCode = location) |>
+      dplyr::mutate(Park = dplyr::case_when(stringr::str_detect(SiteCode, "GRBA") ~ "GRBA",
+                                            TRUE ~ NA_character_))
+    depth_data <- rbind(depth_data, site.data)
+  }
+  
+  depth_data <- list(depth_data)
+  names(depth_data) <- "TimeseriesDepth"
+  
+  for (location in discrete) {
+    site.imp <- timeseries$getFieldVisits(location)
+    site.data <- site.imp$Details$InspectionActivity$Readings |>
+      dplyr::bind_rows() |>
+      dplyr::mutate(SiteCode = location) |>
+      dplyr::mutate(Park = dplyr::case_when(SiteCode == "LAKE_P_BLUE0" ~ "LAKE",
+                                            SiteCode == "MOJA_P_MCSP0" ~ "MOJA",
+                                            SiteCode == "PARA_P_PAKO0" ~ "PARA",
+                                            stringr::str_detect(SiteCode, "GRBA") ~ "GRBA",
+                                            TRUE ~ NA_character_)) |>
+      dplyr::select(Park, SiteCode, Time, Parameter, MonitoringMethod, Value, Unit, ReadingType) |>
+      dplyr::mutate(Value = as.vector(unlist(Value))) |>
+      dplyr::rename(DateTime = Time)
+    discrete_data <- rbind(discrete_data, site.data)
+  }
+  
+  discrete_data <- list(discrete_data)
+  names(discrete_data) <- "TimeseriesFieldVisit"
+  
+  for (location in volumetric) {
+    site.imp <- timeseries$getFieldVisits(location)
+    site.data <- site.imp$Details$DischargeActivities |>
+      dplyr::bind_rows() |>
+      dplyr::mutate(DateTime = as.vector(unlist(DischargeSummary$MeasurementTime)),
+                    Unit_Discharge = as.vector(unlist(DischargeSummary$Discharge$Unit)),
+                    Unit_Stage = as.vector(unlist(DischargeSummary$MeanGageHeight$Unit)),
+                    Unit_Correction = as.vector(unlist(DischargeSummary$GageHeightAdjustmentAmount$Unit)),
+                    Value_Discharge = as.vector(unlist(DischargeSummary$Discharge$Numeric)),
+                    Value_Stage = as.vector(unlist(DischargeSummary$MeanGageHeight$Numeric)),
+                    Value_Correction = as.vector(unlist(DischargeSummary$GageHeightAdjustmentAmount$Numeric)),
+                    MonitoringMethod_Stage = as.vector(unlist(DischargeSummary$MeanGageHeightMethod)),
+                    MonitoringMethod_Discharge = as.vector(unlist(DischargeSummary$DischargeMethod)),
+                    ReadingType = as.vector(unlist(DischargeSummary$DischargeMeasurementReason))) |>
+      dplyr::mutate(SiteCode = location) |>
+      dplyr::mutate(Park = dplyr::case_when(SiteCode == "LAKE_P_BLUE0" ~ "LAKE",
+                                            TRUE ~ NA_character_)) |>
+      dplyr::select(Park, SiteCode, DateTime, MonitoringMethod_Stage, MonitoringMethod_Discharge, Unit_Discharge, Value_Discharge, Unit_Stage, Value_Stage, Unit_Correction, Value_Correction, ReadingType) |>
+      tidyr::pivot_longer(cols = c(starts_with("Unit"), starts_with("Value"), starts_with("MonitoringMethod")),
+                          names_to = c(".value", "Parameter"),
+                          names_pattern = '(.*?)_(.*)') |>
+      dplyr::relocate(ReadingType, .after = Value) |>
+      dplyr::relocate(MonitoringMethod, .after = Parameter)
+    volumetric_data <- rbind(volumetric_data, site.data)
+  }
+  
+  volumetric_data <- list(volumetric_data)
+  names(volumetric_data) <- "TimeseriesVolumetric"
+  
+  aquarius <- c(q_data, stage_data, depth_data, discrete_data, volumetric_data)
   
   # Tidy up the data
   aquarius <- lapply(aquarius, function(df) {
@@ -609,7 +683,7 @@ ReadAndFilterData <- function(park, site, field.season, data.name) {
   }
   
   if (!missing(park)) {
-    filtered.data %<>%
+    filtered.data <- filtered.data |>
       dplyr::filter(Park %in% park) # Changed to allow filtering of multiple parks
     if (nrow(filtered.data) == 0) {
       warning(paste0(data.name, ": Data are not available for the park specified"))
@@ -617,7 +691,7 @@ ReadAndFilterData <- function(park, site, field.season, data.name) {
   }
   
   if (!missing(site) & nrow(filtered.data) > 0) {
-    filtered.data %<>%
+    filtered.data <- filtered.data |>
       dplyr::filter(SiteCode == site)
     
     if (nrow(filtered.data) == 0) {
@@ -626,11 +700,12 @@ ReadAndFilterData <- function(park, site, field.season, data.name) {
   }
   
   if ("FieldSeason" %in% names(filtered.data)) {
-    filtered.data %<>% dplyr::mutate(FieldSeason = as.character(FieldSeason))
+    filtered.data <- filtered.data |>
+      dplyr::mutate(FieldSeason = as.character(FieldSeason))
   }
   
   if (!missing(field.season) & ("FieldSeason" %in% colnames(filtered.data)) & nrow(filtered.data) > 0) {
-    filtered.data %<>%
+    filtered.data <- filtered.data |>
       dplyr::filter(FieldSeason %in% field.season)
     if (nrow(filtered.data) == 0) {
       warning(paste0(data.name, ": Data are not available for one or more of the field seasons specified"))
