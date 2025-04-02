@@ -137,7 +137,8 @@ gageReading <- function(park, field.season, site) {
 #'
 #' @examples
 gageReadingPlot <- function(park, field.season, site) {
-  readingSorted <- gageReading(park = park, field.season = field.season, site = site)
+  readingSorted <- gageReading(park = park, field.season = field.season, site = site) |>
+    dplyr::filter(!(Park %in% c("DEVA")))
   
   plot <- ggplot2::ggplot(data = readingSorted,
                           ggplot2::aes(x = DateTime,
@@ -175,12 +176,13 @@ volumetricDischarge <- function(park, field.season, site) {
   visitImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "VisitQuarterly")
   
   dischargeCalculated <- volumetricImport |>
+    dplyr::filter(!is.na(FillTime_sec)) |>
     dplyr::group_by(Park, SiteCode, DateTime) |>
     dplyr::summarize(MedianFillTime_sec = median(FillTime_sec)) |>
     dplyr::ungroup() |>
     dplyr::left_join(visitImport, by = c("Park", "SiteCode", "DateTime")) |>
     dplyr::select(Park, SiteCode, DateTime, ContainerVolume_L, PercentFlowCaptured, MedianFillTime_sec, FlumeWeirNotes, OverallNotes) |>
-    dplyr::mutate(Discharge_L_per_sec = (ContainerVolume_L/MedianFillTime_sec)*(PercentFlowCaptured/100)) |>
+    dplyr::mutate(Discharge_L_per_sec = (ContainerVolume_L/MedianFillTime_sec)*(100/PercentFlowCaptured)) |>
     dplyr::mutate(Discharge_cfs = Discharge_L_per_sec * 0.035315) |>
     dplyr::relocate(Discharge_L_per_sec, .after = "MedianFillTime_sec") |>
     dplyr::relocate(Discharge_cfs, .after = "Discharge_L_per_sec")
@@ -326,6 +328,130 @@ stageContinuousPlot <- function(park, field.season, site) {
     # ggplot2::scale_y_continuous(limits = c(0, NA)) +
     ggplot2::theme_bw() +
     ggplot2::theme(legend.position = "bottom")
+  
+  return(plot)
+}
+
+#' Return discrete stage and discharge readings for Aquarius and Survey123 entries
+#'
+#' @param park Optional. Four-letter park code to filter on, e.g. "LAKE".
+#' @param site Optional. Site code to filter on, e.g. "LAKE_P_BLUE0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
+#'
+#' @returns Tibble
+#' @export
+#'
+#' @examples
+discreteComparison <- function(park, field.season, site) {
+  gageReading <- gageReading(park = park, field.season = field.season, site = site)
+  volumetricDischarge <- volumetricDischarge(park = park, field.season = field.season, site = site)
+  fieldVisit <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesFieldVisit") |>
+    dplyr::relocate(Unit, .after = MonitoringMethod)
+  aquariusVolumetric <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesVolumetric")
+  
+  aquarius <- rbind(fieldVisit, aquariusVolumetric) |>
+    dplyr::select(Park, SiteCode, DateTime, Parameter, Unit, Value) |>
+    dplyr::mutate(Source = "Aquarius")
+  
+  gageForm <- gageReading |>
+    dplyr::rename(Value = GageHeight_ft) |>
+    dplyr::mutate(Unit = "ft",
+                  Source = "Survey",
+                  Parameter = "Stage") |>
+    dplyr::select(Park, SiteCode, DateTime, Parameter, Unit, Value, Source) |>
+    dplyr::filter(Park %in% c("LAKE", "MOJA", "PARA")) |>
+    dplyr::mutate(Value = dplyr::case_when(SiteCode == "LAKE_P_BLUE0" ~ Value + 0.02,
+                                           TRUE ~ Value))
+  
+  volumetricForm <- volumetricDischarge |>
+    dplyr::rename(Value = Discharge_cfs) |>
+    dplyr::mutate(Unit = "ft^3/s",
+                  Source = "Survey",
+                  Parameter = "Discharge") |>
+    dplyr::select(Park, SiteCode, DateTime, Parameter, Unit, Value, Source) |>
+    dplyr::filter(Park %in% c("LAKE", "MOJA", "PARA"))
+  
+  survey <- rbind(gageForm, volumetricForm)
+  
+  discrete <- rbind(survey, aquarius)
+  
+  return(discrete)
+}
+
+#' Plot discrete stage values for Aquarius and Survey123 entries
+#'
+#' @param park Optional. Four-letter park code to filter on, e.g. "LAKE".
+#' @param site Optional. Site code to filter on, e.g. "LAKE_P_BLUE0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
+#'
+#' @returns ggplot object
+#' @export
+#'
+#' @examples
+discreteStageComparisonPlot <- function(park, field.season, site) {
+  discreteData <- discreteComparison(park = park, field.season = field.season, site = site) |>
+    dplyr::filter(Parameter %in% c("Stage"))
+  
+  plot <- ggplot2::ggplot(discreteData,
+                          ggplot2::aes(x = DateTime,
+                                       y = Value,
+                                       color = Source,
+                                       shape = Source)) +
+    ggplot2::geom_point(size = 2.5) +
+    ggplot2::geom_line(linewidth = 0.8) +
+    ggplot2::facet_grid(SiteCode~Parameter,
+                        scales = "free_y") +
+    ggplot2::theme_bw() + 
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)) +
+    ggplot2::labs(title = "Comparison of Aquarius and Survey123 stage measurements",
+                  x = "Year",
+                  y = "Stage (ft)",
+                  color = "Source") +
+    ggplot2::scale_y_continuous(breaks = scales::pretty_breaks()) +
+    ggplot2::scale_x_datetime(date_breaks = "1 year",
+                              date_labels = "%Y") +
+    khroma::scale_color_muted() +
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1))
+  
+  return(plot)
+}
+
+#' Plot discrete discharge values for Aquarius and Survey123 entries
+#'
+#' @param park Optional. Four-letter park code to filter on, e.g. "LAKE".
+#' @param site Optional. Site code to filter on, e.g. "LAKE_P_BLUE0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
+#'
+#' @returns ggplot object
+#' @export
+#'
+#' @examples
+discreteDischargeComparisonPlot <- function(park, field.season, site) {
+  discreteData <- discreteComparison(park = park, field.season = field.season, site = site) |>
+    dplyr::filter(Parameter %in% c("Discharge"))
+  
+  plot <- ggplot2::ggplot(discreteData,
+                          ggplot2::aes(x = DateTime,
+                                       y = Value,
+                                       color = Source,
+                                       shape = Source)) +
+    ggplot2::geom_point(size = 2.5) +
+    ggplot2::geom_line(linewidth = 0.8) +
+    ggplot2::facet_grid(SiteCode~Parameter,
+                        scales = "free_y") +
+    ggplot2::theme_bw() + 
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)) +
+    ggplot2::labs(title = "Comparison of Aquarius and Survey123 discharge measurements",
+                  x = "Year",
+                  y = "Discharge (ft)",
+                  color = "Source") +
+    ggplot2::scale_y_continuous(breaks = scales::pretty_breaks()) +
+    ggplot2::scale_x_datetime(date_breaks = "1 year",
+                              date_labels = "%Y") +
+    khroma::scale_color_muted() +
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::guides(fill = ggplot2::guide_legend(nrow = 1))
   
   return(plot)
 }
