@@ -19,6 +19,7 @@ get_data <- function(data.name) {
                     "Pool",
                     "Gage",
                     "FillTime",
+                    "VolumetricDischarge",
                     "VisitBiennial",
                     "BMISample",
                     "BMIQuadrat",
@@ -183,6 +184,13 @@ WrangleAGOL <- function(...) {
                   SubsiteCode = SubWellCode) |>
     dplyr::select(Park, SiteCode, DateTime, globalid)
   
+  vol_discharge <- agol_layers$VisitQuarterly |>
+    dplyr::mutate(StartTime = as.POSIXct(StartTime/1000, origin = "1970-01-01", tz = "America/Los_Angeles")) |>
+    dplyr::rename(DateTime = StartTime,
+                  Park = ParkCode,
+                  SiteCode = SpringCode) |>
+    dplyr::select(Park, SiteCode, DateTime, ContainerVolume_L, PercentFlowCaptured)
+    
   filltime_median <- agol_layers$FillTime |>
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::select(Park, SiteCode, DateTime, FillTime_sec) |>
@@ -260,10 +268,7 @@ WrangleAGOL <- function(...) {
                   SiteCode = SpringCode,
                   GageNotes = FlumeWeirNotes,
                   WaterQualityNotes = WQNotes) |>
-    dplyr::left_join(filltime_median, by = c("Park", "SiteCode", "DateTime")) |>
-    dplyr::mutate(Discharge_L_per_sec = (ContainerVolume_L/FillTime_sec)*(100/PercentFlowCaptured),
-                  Discharge_cfs = (ContainerVolume_L/FillTime_sec)*(100/PercentFlowCaptured)*0.035315) |>
-    dplyr::select(Park, SiteCode, DateTime, FlowCondition, ContainerVolume_L, PercentFlowCaptured, FillTime_sec, Discharge_L_per_sec, Discharge_cfs, GageNotes, WaterQualityNotes, OverallNotes) |>
+    dplyr::select(Park, SiteCode, DateTime, FlowCondition, GageNotes, WaterQualityNotes, OverallNotes) |>
     dplyr::arrange(SiteCode, DateTime)
   
   # ----- PhotoQuarterly -----
@@ -346,6 +351,16 @@ WrangleAGOL <- function(...) {
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::select(Park, SiteCode, DateTime, FillTime_sec) |>
     dplyr::arrange(SiteCode, DateTime)
+  
+  # ----- VolumetricDischarge -----
+  
+  agol_layers$VolumetricDischarge <- vol_discharge |>
+    dplyr::left_join(filltime_median, by = c("Park", "SiteCode", "DateTime")) |>
+    dplyr::mutate(Discharge_L_per_sec = (ContainerVolume_L/FillTime_sec)*(100/PercentFlowCaptured),
+                  Discharge_cfs = (ContainerVolume_L/FillTime_sec)*(100/PercentFlowCaptured)*0.035315) |>
+    dplyr::select(Park, SiteCode, DateTime, ContainerVolume_L, PercentFlowCaptured, FillTime_sec, Discharge_L_per_sec, Discharge_cfs) |>
+    dplyr::arrange(SiteCode, DateTime) |>
+    dplyr::filter(!(is.na(FillTime_sec)))
   
   # ----- VisitBiennial -----
   
@@ -437,7 +452,6 @@ WrangleAGOL <- function(...) {
   # ----- BMISpecies -----
   
   agol_layers$BMISpecies <- agol_layers$BMISpecies |>
-    
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup,
                   Order = Order_) |>
@@ -447,7 +461,6 @@ WrangleAGOL <- function(...) {
   # ----- BMIMetrics -----
   
   agol_layers$BMIMetrics <- agol_layers$BMIMetrics |>
-    
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup) |>
     dplyr::select(SampleID, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, AnalysisType, InvasiveSpeciesList, Attribute, Value) |>
