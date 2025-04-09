@@ -192,11 +192,12 @@ discreteWellComparisonPlot <- function(park, field.season, site) {
                         scales = "free_y") +
     ggplot2::theme_bw() + 
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)) +
-    ggplot2::labs(title = "Comparison of Aquarius and Survey123 discharge measurements",
+    ggplot2::labs(title = "Comparison of Aquarius and Survey123 well depth measurements",
                   x = "Year",
-                  y = "Discharge (ft)",
+                  y = "Depth to Water from Ground (ft)",
                   color = "Source") +
     ggplot2::scale_y_continuous(breaks = scales::pretty_breaks()) +
+    ggplot2::scale_y_reverse() +
     ggplot2::scale_x_datetime(date_breaks = "1 year",
                               date_labels = "%Y") +
     khroma::scale_color_muted() +
