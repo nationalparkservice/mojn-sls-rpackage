@@ -182,7 +182,38 @@ WrangleAGOL <- function(...) {
                   SiteCode = WellCode,
                   SubsiteCode = SubWellCode) |>
     dplyr::select(Park, SiteCode, DateTime, globalid)
-    
+  
+  filltime_median <- agol_layers$FillTime |>
+    dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
+    dplyr::select(Park, SiteCode, DateTime, FillTime_sec) |>
+    dplyr::group_by(Park, SiteCode, DateTime) |>
+    dplyr::mutate(FillTime_sec = median(FillTime_sec, na.rm = TRUE)) |>
+    dplyr::ungroup() |>
+    unique() |>
+    dplyr::arrange(SiteCode, DateTime)
+  
+  welldepth_median <- agol_layers$WellDepth |>
+    dplyr::left_join(visit_w_info, by = c("parentglobalid" = "globalid")) |>
+    dplyr::select(Park, SiteCode, DateTime, WLBelowLSD_ft) |>
+    dplyr::mutate_if(is.numeric, dplyr::na_if, -9999) |>  # Replace -9999 or -999 with NA
+    dplyr::mutate_if(is.numeric, dplyr::na_if, -999) |>
+    dplyr::group_by(Park, SiteCode, DateTime) |>
+    dplyr::mutate(WLBelowLSD_ft = median(WLBelowLSD_ft, na.rm = TRUE)) |>
+    dplyr::ungroup() |>
+    unique() |>
+    dplyr::arrange(SiteCode, DateTime)
+  
+  wellsecondary_median <- agol_layers$WellSecondary |>
+    dplyr::left_join(visit_w_info, by = c("parentglobalid" = "globalid")) |>
+    dplyr::select(Park, SiteCode, DateTime, WLBelowLSD_Secondary_ft) |>
+    dplyr::mutate_if(is.numeric, dplyr::na_if, -9999) |>  # Replace -9999 or -999 with NA
+    dplyr::mutate_if(is.numeric, dplyr::na_if, -999) |>
+    dplyr::group_by(Park, SiteCode, DateTime) |>
+    dplyr::mutate(WLBelowLSD_Secondary_ft = median(WLBelowLSD_Secondary_ft)) |>
+    dplyr::ungroup() |>
+    unique() |>
+    dplyr::arrange(SiteCode, DateTime)
+  
   # ----- Sites -----
   
   agol_layers$Sites <- agol_layers$Sites |>
@@ -226,15 +257,21 @@ WrangleAGOL <- function(...) {
     dplyr::mutate(StartTime = as.POSIXct(StartTime/1000, origin = "1970-01-01", tz = "America/Los_Angeles")) |>
     dplyr::rename(DateTime = StartTime,
                   Park = ParkCode,
-                  SiteCode = SpringCode) |>
-    dplyr::select(Park, SiteCode, DateTime, FlowCondition, EstDischargeMethod, EstDischarge_L_per_sec, ContainerVolume_L, PercentFlowCaptured, TemperatureInstrument, pHInstrument, SpCondInstrument, DOInstrument, GageType, PTLoggerID, PTLoggerID_2, FlumeWeirNotes, OverallNotes)
-  
+                  SiteCode = SpringCode,
+                  GageNotes = FlumeWeirNotes,
+                  WaterQualityNotes = WQNotes) |>
+    dplyr::left_join(filltime_median, by = c("Park", "SiteCode", "DateTime")) |>
+    dplyr::mutate(Discharge_L_per_sec = (ContainerVolume_L/FillTime_sec)*(100/PercentFlowCaptured),
+                  Discharge_cfs = (ContainerVolume_L/FillTime_sec)*(100/PercentFlowCaptured)*0.035315) |>
+    dplyr::select(Park, SiteCode, DateTime, FlowCondition, ContainerVolume_L, PercentFlowCaptured, FillTime_sec, Discharge_L_per_sec, Discharge_cfs, GageNotes, WaterQualityNotes, OverallNotes) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- PhotoQuarterly -----
   
   agol_layers$PhotoQuarterly <- agol_layers$PhotoQuarterly |>
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
-    dplyr::select(Park, SiteCode, DateTime, PhotoType, IsLibrary, PhotoNotes)
+    dplyr::select(Park, SiteCode, DateTime, PhotoType, IsLibrary, PhotoNotes) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- WaterQuality -----
   
@@ -242,45 +279,73 @@ WrangleAGOL <- function(...) {
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::rename(SubsiteCode = WQSubsite,
                   MeasurementDepth_ft = MeasurementDepth,
-                  SpCond_uS_per_cm_Flag = SpCondmicroS_Flag) |>
+                  SpCond_Flag = SpCondmicroS_Flag,
+                  Temperature_Flag = Temp_C_Flag) |>
     dplyr::filter(ifelse(parentglobalid %in% "22269cb4-c908-4c82-a5a8-6758ac76d525", globalid == "ffc5a62c-b53e-40c7-8fe3-1dc95d27a95a", TRUE)) |>
     dplyr::filter(!is.na(SubsiteCode)) |>
     dplyr::mutate_if(is.numeric, dplyr::na_if, -9999) |>  # Replace -9999 or -999 with NA
     dplyr::mutate_if(is.numeric, dplyr::na_if, -999) |>
     dplyr::rowwise() |>
-    dplyr::mutate(Temp_C = median(c(Temp_C_1, Temp_C_2, Temp_C_3), na.rm = TRUE),
+    dplyr::mutate(Temperature_C = median(c(Temp_C_1, Temp_C_2, Temp_C_3), na.rm = TRUE),
                   pH = median(c(pH_1, pH_2, pH_3), na.rm = TRUE),
                   SpCond_uS_per_cm = median(c(SpCond_microS_1, SpCond_microS_2, SpCond_microS_3), na.rm = TRUE),
                   DO_mg_per_L = median(c(DO_mg_per_L_1, DO_mg_per_L_2, DO_mg_per_L_3), na.rm = TRUE),
                   DO_percent = median(c(DO_percent_1, DO_percent_2, DO_percent_3), na.rm = TRUE)) |>
-    dplyr::select(Park, SiteCode, SubsiteCode, DateTime, IsDepthProfile, MeasurementDepth_ft, DepthToBottom_ft, Temp_C, Temp_C_Flag, pH, pH_Flag, SpCond_uS_per_cm, SpCond_uS_per_cm_Flag, DO_mg_per_L, DO_percent, DO_Flag)
+    dplyr::mutate(Temperature_Flag = dplyr::case_when(Temperature_Flag == 1 ~ "No Flag",
+                                                      Temperature_Flag == 2 ~ "Information",
+                                                      Temperature_Flag == 3 ~ "Warning",
+                                                      Temperature_Flag == 4 ~ "Critical",
+                                                      TRUE ~ NA_character_),
+                  pH_Flag = dplyr::case_when(pH_Flag == 1 ~ "No Flag",
+                                             pH_Flag == 2 ~ "Information",
+                                             pH_Flag == 3 ~ "Warning",
+                                             pH_Flag == 4 ~ "Critical",
+                                             TRUE ~ NA_character_),
+                  SpCond_Flag = dplyr::case_when(SpCond_Flag == 1 ~ "No Flag",
+                                                 SpCond_Flag == 2 ~ "Information",
+                                                 SpCond_Flag == 3 ~ "Warning",
+                                                 SpCond_Flag == 4 ~ "Critical",
+                                                 TRUE ~ NA_character_),
+                  DO_Flag = dplyr::case_when(DO_Flag == 1 ~ "No Flag",
+                                             DO_Flag == 2 ~ "Information",
+                                             DO_Flag == 3 ~ "Warning",
+                                             DO_Flag == 4 ~ "Critical",
+                                             TRUE ~ NA_character_)) |>
+    dplyr::select(Park, SiteCode, SubsiteCode, DateTime, IsDepthProfile, MeasurementDepth_ft, DepthToBottom_ft, Temperature_C, Temperature_Flag, pH, pH_Flag, SpCond_uS_per_cm, SpCond_Flag, DO_mg_per_L, DO_percent, DO_Flag) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- Outlet -----
   
   agol_layers$Outlet <- agol_layers$Outlet |>
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::select(Park, SiteCode, DateTime, OutletNumber, OutletWaterPresent, FlowsOverCliff, SpringbrookLength_m, OutletNotes) |>
-    dplyr::filter(SiteCode %in% "JOTR_P_SMIT0")
+    dplyr::filter(SiteCode %in% "JOTR_P_SMIT0") |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- Pool -----
   
   agol_layers$Pool <- agol_layers$Pool |>
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::select(Park, SiteCode, DateTime, PoolNumber, PoolArea_m_sq, FrogCount, PoolNotes) |>
-    dplyr::filter(SiteCode %in% "JOTR_P_FORT0")
+    dplyr::filter(SiteCode %in% "JOTR_P_FORT0") |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- Gage -----
   
   agol_layers$Gage <- agol_layers$Gage |>
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::select(Park, SiteCode, DateTime, GageTime, GageHeight_ft) |>
-    dplyr::filter(!is.na(GageHeight_ft))
+    dplyr::mutate_if(is.numeric, dplyr::na_if, -9999) |>  # Replace -9999 or -999 with NA
+    dplyr::mutate_if(is.numeric, dplyr::na_if, -999) |>
+    dplyr::filter(!is.na(GageHeight_ft)) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- FillTime -----
   
   agol_layers$FillTime <- agol_layers$FillTime |>
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
-    dplyr::select(Park, SiteCode, DateTime, FillTime_sec)
+    dplyr::select(Park, SiteCode, DateTime, FillTime_sec) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- VisitBiennial -----
   
@@ -290,7 +355,8 @@ WrangleAGOL <- function(...) {
                   Park = ParkCode,
                   SiteCode = SpringCode,
                   SubsiteCode_Chem = ChemLocation) |>
-    dplyr::select(Park, SiteCode, DateTime, SubsiteCode_Chem, ChemMethod, ChemTotalNumBottles, ChemNotes, BMINotes)
+    dplyr::select(Park, SiteCode, DateTime, BMINotes) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- BMISample -----
 
@@ -301,7 +367,8 @@ WrangleAGOL <- function(...) {
   agol_layers$BMISample <- agol_layers$BMISample |>
     dplyr::left_join(visit_b_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::rename(SubsiteCode_BMI = SpringSubsite) |>
-    dplyr::select(Park, SiteCode, SubsiteCode_BMI, DateTime, BMIMethod, NetSize, QuadratSize, BMISampleNumber, BMITotalSamples, BMITotalNumJars, QuadratsList, QuadratsCount, PoolsCount)
+    dplyr::select(Park, SiteCode, SubsiteCode_BMI, DateTime, BMIMethod, NetSize, QuadratSize, BMISampleNumber, BMITotalSamples, BMITotalNumJars, QuadratsList, QuadratsCount, PoolsCount) |>
+    dplyr::arrange(SiteCode, DateTime, SubsiteCode_BMI)
   
   # ----- BMIQuadrat -----
 
@@ -314,7 +381,8 @@ WrangleAGOL <- function(...) {
                   ChannelFlow = Channel,
                   PoolQuadrats = NumQuadrats,
                   QuadratNum = QuadrateNum) |>
-    dplyr::select(Park, SiteCode, SubsiteCode_BMI, DateTime, TransectDistance_m, PoolNum, PoolQuadrats, QuadratNum, ChannelSide, ChannelSubstrate, ChannelFlow, QuadratNote)
+    dplyr::select(Park, SiteCode, SubsiteCode_BMI, DateTime, TransectDistance_m, ChannelSide, ChannelSubstrate, ChannelFlow, QuadratNum, PoolNum, PoolQuadrats, QuadratNote) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- ChemSample -----
   
@@ -325,7 +393,8 @@ WrangleAGOL <- function(...) {
                   FilteredBottles = bottleCount_Filtered,
                   LabName = laboratory,
                   LabSampleID = lab_number,
-                  SubsiteCode_Chem = ChemLocation)
+                  SubsiteCode_Chem = ChemLocation) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- VisitWell -----
   
@@ -336,25 +405,34 @@ WrangleAGOL <- function(...) {
                   SiteCode = WellCode,
                   SubsiteCode = SubWellCode,
                   WellNotes = OverallNotes) |>
-    dplyr::select(Park, SiteCode, DateTime, TapeType, TapeID, HoldMethod, AvgWLBelowLSD_ft, TapeType_Secondary, TapeID_Secondary, HoldMethod_Secondary, AvgWLBelowLSD_Secondary_ft, WellNotes)
+    dplyr::select(Park, SiteCode, DateTime, TapeType, TapeID, HoldMethod, TapeType_Secondary, TapeID_Secondary, HoldMethod_Secondary, WellNotes) |>
+    dplyr::left_join(welldepth_median, by = c("Park", "SiteCode", "DateTime")) |>
+    dplyr::left_join(wellsecondary_median, by = c("Park", "SiteCode", "DateTime")) |>
+    dplyr::relocate(WLBelowLSD_ft, .after = HoldMethod) |>
+    dplyr::relocate(WLBelowLSD_Secondary_ft, .after = HoldMethod_Secondary) |>
+    dplyr::arrange(SiteCode, DateTime) |>
+    dplyr::filter(!(is.na(WLBelowLSD_ft)))
   
   # ----- PhotoWell -----
   
   agol_layers$PhotoWell <- agol_layers$PhotoWell |>
     dplyr::left_join(visit_w_info, by = c("parentglobalid" = "globalid")) |>
-    dplyr::select(Park, SiteCode, DateTime, PhotoType, IsLibrary, PhotoNotes)
+    dplyr::select(Park, SiteCode, DateTime, PhotoType, IsLibrary, PhotoNotes) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- WellDepth -----
   
   agol_layers$WellDepth <- agol_layers$WellDepth |>
     dplyr::left_join(visit_w_info, by = c("parentglobalid" = "globalid")) |>
-    dplyr::select(Park, SiteCode, DateTime, DepthTime, Hold_ft, Cut_ft, TapeCorrection_ft, MPCorrection_ft, WLBelowLSD_ft)
+    dplyr::select(Park, SiteCode, DateTime, DepthTime, Hold_ft, Cut_ft, TapeCorrection_ft, MPCorrection_ft, WLBelowLSD_ft) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- WellSecondary -----
   
   agol_layers$WellSecondary <- agol_layers$WellSecondary |>
     dplyr::left_join(visit_w_info, by = c("parentglobalid" = "globalid")) |>
-    dplyr::select(Park, SiteCode, DateTime, DepthTime_Secondary, Hold_Secondary_ft, Cut_Secondary_ft, TapeCorrection_Secondary_ft, MPCorrection_Secondary_ft, WLBelowLSD_Secondary_ft)
+    dplyr::select(Park, SiteCode, DateTime, DepthTime_Secondary, Hold_Secondary_ft, Cut_Secondary_ft, TapeCorrection_Secondary_ft, MPCorrection_Secondary_ft, WLBelowLSD_Secondary_ft) |>
+    dplyr::arrange(SiteCode, DateTime)
   
   # ----- BMISpecies -----
   
@@ -363,7 +441,8 @@ WrangleAGOL <- function(...) {
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup,
                   Order = Order_) |>
-    dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, Phylum, Class, Order, Family, SubFamily, Genus, Species, ScientificName, OTUName, LifeStage, Notes, LabCount, BigRareCount)
+    dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, Phylum, Class, Order, Family, SubFamily, Genus, Species, ScientificName, OTUName, LifeStage, Notes, LabCount, BigRareCount) |>
+    dplyr::arrange(SiteCode, CollectionDate)
   
   # ----- BMIMetrics -----
   
@@ -371,14 +450,16 @@ WrangleAGOL <- function(...) {
     
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup) |>
-    dplyr::select(SampleID, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, AnalysisType, InvasiveSpeciesList, Attribute, Value)
+    dplyr::select(SampleID, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, AnalysisType, InvasiveSpeciesList, Attribute, Value) |>
+    dplyr::arrange(SiteCode, CollectionDate)
   
   # ----- BMIVisit -----
   
   agol_layers$BMIVisit <- agol_layers$BMIVisit |>
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup) |>
-    dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, VisitType, AnalysisType, SamplerType, Habitat, Ecosystem, Area, FieldSplit, LabSplit, SplitCount, FieldNotes, LabNotes)
+    dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, VisitType, AnalysisType, SamplerType, Habitat, Ecosystem, Area, FieldSplit, LabSplit, SplitCount, FieldNotes, LabNotes) |>
+    dplyr::arrange(SiteCode, CollectionDate)
   
   # ----- ChemResults -----
   
@@ -408,7 +489,8 @@ WrangleAGOL <- function(...) {
     dplyr::mutate(AnalysisType = dplyr::case_when(AnalysisType == "routine" ~ "Routine",
                                                   AnalysisType == "duplicate" ~ "Duplicate",
                                                   AnalysisType == "triplicate" ~ "Triplicate",
-                                                  TRUE ~ AnalysisType))
+                                                  TRUE ~ AnalysisType)) |>
+    dplyr::arrange(SiteCode, VisitDate)
     
   # ----- CalibrationSpCond -----
   
