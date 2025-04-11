@@ -104,7 +104,7 @@ outletLengthPlot <- function(park, field.season, site) {
   return(plot)
 }
 
-#' Return observed staff gage heights
+#' Return observed staff gage heights with gage and overall notes
 #'
 #' @param park 
 #' @param field.season 
@@ -121,7 +121,7 @@ gageReading <- function(park, field.season, site) {
   readingSorted <- gageImport |>
     dplyr::arrange(SiteCode, DateTime, GageTime) |>
     dplyr::left_join(visitImport, by = c("Park", "SiteCode", "DateTime")) |>
-    dplyr::select(Park, SiteCode, DateTime, GageTime, GageHeight_ft, FlumeWeirNotes, OverallNotes)
+    dplyr::select(Park, SiteCode, DateTime, GageTime, GageHeight_ft, GageNotes, OverallNotes)
   
   return(readingSorted)
 }
@@ -137,10 +137,10 @@ gageReading <- function(park, field.season, site) {
 #'
 #' @examples
 gageReadingPlot <- function(park, field.season, site) {
-  readingSorted <- gageReading(park = park, field.season = field.season, site = site) |>
+  readingImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "Gage") |>
     dplyr::filter(!(Park %in% c("DEVA")))
   
-  plot <- ggplot2::ggplot(data = readingSorted,
+  plot <- ggplot2::ggplot(data = readingImport,
                           ggplot2::aes(x = DateTime,
                                        y = GageHeight_ft,
                                        color = SiteCode,
@@ -161,35 +161,6 @@ gageReadingPlot <- function(park, field.season, site) {
   return(plot)
 }
 
-#' Calculate volumetric discharge based on container volume and fill time
-#'
-#' @param park 
-#' @param field.season 
-#' @param site 
-#'
-#' @returns Tibble
-#' @export
-#'
-#' @examples
-volumetricDischarge <- function(park, field.season, site) {
-  volumetricImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "FillTime")
-  visitImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "VisitQuarterly")
-  
-  dischargeCalculated <- volumetricImport |>
-    dplyr::filter(!is.na(FillTime_sec)) |>
-    dplyr::group_by(Park, SiteCode, DateTime) |>
-    dplyr::summarize(MedianFillTime_sec = median(FillTime_sec)) |>
-    dplyr::ungroup() |>
-    dplyr::left_join(visitImport, by = c("Park", "SiteCode", "DateTime")) |>
-    dplyr::select(Park, SiteCode, DateTime, ContainerVolume_L, PercentFlowCaptured, MedianFillTime_sec, FlumeWeirNotes, OverallNotes) |>
-    dplyr::mutate(Discharge_L_per_sec = (ContainerVolume_L/MedianFillTime_sec)*(100/PercentFlowCaptured)) |>
-    dplyr::mutate(Discharge_cfs = Discharge_L_per_sec * 0.035315) |>
-    dplyr::relocate(Discharge_L_per_sec, .after = "MedianFillTime_sec") |>
-    dplyr::relocate(Discharge_cfs, .after = "Discharge_L_per_sec")
-    
-  return(dischargeCalculated)
-}
-
 #' Plot volumetric discharge readings over time
 #'
 #' @param park 
@@ -201,7 +172,7 @@ volumetricDischarge <- function(park, field.season, site) {
 #'
 #' @examples
 volumetricDischargePlot <- function(park, field.season, site) {
-  dischargeCalculated <- volumetricDischarge(park = park, field.season = field.season, site = site)
+  dischargeCalculated <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "VolumetricDischarge")
   
   plot <- ggplot2::ggplot(data = dischargeCalculated,
                           ggplot2::aes(x = DateTime,
@@ -226,15 +197,15 @@ volumetricDischargePlot <- function(park, field.season, site) {
 
 #' Return continuous discharge values and grades from Aquarius for all sites
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "LAKE".
+#' @param site Optional. Site code to filter on, e.g. "LAKE_P_BLUE0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns Tibble
 #' @export
 #'
 #' @examples
-dischargeContinuous <- function(park, field.season, site) {
+continuousDischarge <- function(park, field.season, site) {
   dischargeImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesDischarge")
 
   dischargeDaily <- dischargeImport
@@ -244,17 +215,17 @@ dischargeContinuous <- function(park, field.season, site) {
 
 #' Plot continuous discharge values from Aquarius for a single site
 #'
-#' @param park 
-#' @param field.season 
-#' @param site Mandatory.
+#' @param park Optional. Four-letter park code to filter on, e.g. "LAKE".
+#' @param site Optional. Site code to filter on, e.g. "LAKE_P_BLUE0".
+#' @param field.season Mandatory. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns ggplot object
 #' @export
 #'
 #' @examples
-dischargeContinuousPlot <- function(park, field.season, site) {
-  dischargeDaily <- dischargeContinuous(park = park, field.season = field.season, site = site) # |>
-    # dplyr::filter(SiteCode == site)
+continuousDischargePlot <- function(park, field.season, site) {
+  dischargeDaily <- continuousDischarge(park = park, field.season = field.season, site = site) |>
+    dplyr::filter(SiteCode == site)
   
   # dischargeVolumetric <- volumetricDischarge(park = park, field.season = field.season, site = site) |>
   #   dplyr::filter(SiteCode == site)
@@ -280,15 +251,15 @@ dischargeContinuousPlot <- function(park, field.season, site) {
 
 #' Return continuous stage values and grades from Aquarius for all sites
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "LAKE".
+#' @param site Optional. Site code to filter on, e.g. "LAKE_P_BLUE0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns Tibble
 #' @export
 #'
 #' @examples
-stageContinuous <- function(park, field.season, site) {
+continuousStage <- function(park, field.season, site) {
   stageImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesStage")
 
   stageDaily <- stageImport
@@ -298,16 +269,16 @@ stageContinuous <- function(park, field.season, site) {
 
 #' Plot continuous stage values from Aquarius for a single site
 #'
-#' @param park 
-#' @param field.season 
-#' @param site Mandatory.
+#' @param park Optional. Four-letter park code to filter on, e.g. "LAKE".
+#' @param site Optional. Site code to filter on, e.g. "LAKE_P_BLUE0".
+#' @param field.season Mandatory. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns ggplot object
 #' @export
 #'
 #' @examples
-stageContinuousPlot <- function(park, field.season, site) {
-  stageDaily <- stageContinuous(park = park, field.season = field.season, site = site) |>
+continuousStagePlot <- function(park, field.season, site) {
+  stageDaily <- continuousStage(park = park, field.season = field.season, site = site) |>
     dplyr::filter(SiteCode == site)
   
   readingSorted <- gageReading(park = park, field.season = field.season, site = site) |>
@@ -344,7 +315,7 @@ stageContinuousPlot <- function(park, field.season, site) {
 #' @examples
 discreteComparison <- function(park, field.season, site) {
   gageReading <- gageReading(park = park, field.season = field.season, site = site)
-  volumetricDischarge <- volumetricDischarge(park = park, field.season = field.season, site = site)
+  volumetricDischarge <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "VolumetricDischarge")
   fieldVisit <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesFieldVisit") |>
     dplyr::relocate(Unit, .after = MonitoringMethod)
   aquariusVolumetric <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesVolumetric")
