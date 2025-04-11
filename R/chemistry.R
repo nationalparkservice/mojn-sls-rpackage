@@ -42,7 +42,7 @@ chemMDL <- function(park, site, field.season) {
     dplyr::rename(Characteristic = Characteristic.x, Unit = Unit.x) |>
     dplyr::mutate(FieldSeason = as.character(FieldSeason)) |>
     dplyr::select(Park, SiteCode, SubsiteCode_Chem, VisitDate, FieldSeason, SampleType, AnalysisType, Characteristic, Unit, Value, MDL) |>
-    dplyr::filter(Value > MDL)
+    dplyr::filter(Value <= MDL)
   
   return(chemMDL)
 }
@@ -75,7 +75,7 @@ chemML <- function(park, site, field.season) {
     dplyr::rename(Characteristic = Characteristic.x, Unit = Unit.x) |>
     dplyr::mutate(FieldSeason = as.character(FieldSeason)) |>
     dplyr::select(Park, SiteCode, SubsiteCode_Chem, VisitDate, FieldSeason, SampleType, AnalysisType, Characteristic, Unit, Value, ML) |>
-    dplyr::filter(Value > ML)
+    dplyr::filter(Value <= ML)
   
   return(chemML)
 }
@@ -336,7 +336,7 @@ chemRatios <- function(park, site, field.season) {
                                                     TRUE ~ Characteristic)) |>
     dplyr::select(-c("SampleType", "AnalysisType", "DateProcessed", "Unit", "BelowDL", "WithinPrecision", "PrecisionNotes", "Flag")) |>
     tidyr::pivot_wider(names_from = Characteristic, values_from = Value) |>
-    dplyr::mutate(`DIN:TN` = DIN/TN,
+    dplyr::mutate(`DIN:TN` = DIN/UTN,
                   `DIN:TP` = DIN/UTP,
                   `TN:TP` = UTN/UTP)
     
