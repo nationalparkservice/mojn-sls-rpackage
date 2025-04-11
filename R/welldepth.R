@@ -1,31 +1,8 @@
-#' Return median well depth to water measurements
-#'
-#' @param park 
-#' @param field.season 
-#' @param site 
-#'
-#' @returns Tibble
-#' @export
-#'
-#' @examples
-wellDepth <- function(park, field.season, site) {
-  depthImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "WellDepth")
-  
-  depthCalculated <- depthImport |>
-    dplyr::group_by(Park, SiteCode, DateTime) |>
-    dplyr::summarize(WLBelowLSD_ft = median(WLBelowLSD_ft)) |>
-    dplyr::ungroup() |>
-    dplyr::filter(lubridate::year(DateTime) > 2010) |>
-    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "days") > 120)), "_", SiteCode))
-  
-  return(depthCalculated)
-}
-
 #' Return well depth to water measurements that are outside of the expected range of values
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional, e.g., "GRBA"
+#' @param field.season Optional, e.g., c("2017", "2019", "2020")
+#' @param site Optional, e.g., "LAKE_W_ROGE0"
 #'
 #' @returns Tibble
 #' @export
@@ -40,11 +17,12 @@ wellExpected <- function(park, field.season, site) {
                   (SiteCode == "GRBA_W_OC2" & (30 > WLBelowLSD_ft | WLBelowLSD_ft > 80)) |
                   (SiteCode == "GRBA_W_SH3" & (30 > WLBelowLSD_ft | WLBelowLSD_ft > 80)))
   
+  return(depthExpected)
 }
 
 #' Plot well depth to water over time for sites within a park
 #'
-#' @param park Mandatory, e.g., "GRBA"
+#' @param park Optional, e.g., "GRBA"
 #' @param field.season Optional, e.g., c("2017", "2019", "2020")
 #' @param site Optional, e.g., "LAKE_W_ROGE0"
 #'
@@ -52,10 +30,15 @@ wellExpected <- function(park, field.season, site) {
 #' @export
 #'
 #' @examples
-wellDepthPlot <- function(park, field.season, site) {
-  depthCalculated <- wellDepth(park = park, field.season = field.season, site = site)
+discreteWellDepthPlot <- function(park, field.season, site) {
+  depthImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "VisitWell")
   
-  plot <- ggplot2::ggplot(data = depthCalculated,
+  depthGaps <- depthImport |>
+    dplyr::select(Park, SiteCode, DateTime, WLBelowLSD_ft) |>
+    dplyr::filter(lubridate::year(DateTime) > 2010) |>
+    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "days") > 120)), "_", SiteCode))
+    
+  plot <- ggplot2::ggplot(data = depthGaps,
                           ggplot2::aes(x = DateTime,
                                        y = WLBelowLSD_ft,
                                        color = SiteCode,
@@ -79,29 +62,6 @@ wellDepthPlot <- function(park, field.season, site) {
   return(plot)
 }
 
-#' Return continuous well depth values and grades from Aquarius for all sites
-#'
-#' @param park Mandatory, e.g., "GRBA"
-#' @param field.season Optional, e.g., c("2017", "2019", "2020")
-#' @param site Optional, e.g., "LAKE_W_ROGE0"
-#'
-#' @returns Tibble
-#' @export
-#'
-#' @examples
-depthContinuous <- function(park, field.season, site) {
-  depthImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesDepth")
-  
-  depthGap <- depthImport |>
-    dplyr::group_by(Park, SiteCode) |>
-    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "hours") > 1)), "_", SiteCode)) |>
-    dplyr::ungroup() |>
-    dplyr::select(Park, SiteCode, DateTime, FieldSeason, Value, Grade, Approval, Gap)
-  
-  return(depthGap)
-}
-
-
 #' Plot continuous well depth values from Aquarius
 #'
 #' @param park Mandatory, e.g., "GRBA"
@@ -112,10 +72,16 @@ depthContinuous <- function(park, field.season, site) {
 #' @export
 #'
 #' @examples
-depthContinuousPlot <- function(park, field.season, site) {
-  depthContinuous <- depthContinuous()
-
-  plot <- ggplot2::ggplot(data = depthGap,
+continuousWellDepthPlot <- function(park, field.season, site) {
+  depthImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesDepth")
+  
+  depthGaps <- depthImport |>
+    dplyr::group_by(Park, SiteCode) |>
+    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "hours") > 1)), "_", SiteCode)) |>
+    dplyr::ungroup() |>
+    dplyr::select(Park, SiteCode, DateTime, FieldSeason, Value, Grade, Approval, Gap)
+  
+  plot <- ggplot2::ggplot(data = depthGaps,
                           ggplot2::aes(x = DateTime,
                                        y = Value,
                                        color = SiteCode,
@@ -146,7 +112,7 @@ depthContinuousPlot <- function(park, field.season, site) {
 #'
 #' @examples
 wellComparison <- function(park, field.season, site) {
-  wellDepth <- wellDepth(park = park, field.season = field.season, site = site)
+  wellDepth <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "VisitWell")
   fieldVisit <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "TimeseriesFieldVisit") |>
     dplyr::relocate(Unit, .after = MonitoringMethod)
 
@@ -160,7 +126,8 @@ wellComparison <- function(park, field.season, site) {
     dplyr::mutate(Unit = "ft",
                   Source = "Survey",
                   Parameter = "DepthToWaterFromGround") |>
-    dplyr::select(Park, SiteCode, DateTime, Parameter, Unit, Value, Source)
+    dplyr::select(Park, SiteCode, DateTime, Parameter, Unit, Value, Source) |>
+    dplyr::filter(lubridate::year(DateTime) >= 2010)
   
   discrete <- rbind(survey, aquarius)
   
@@ -177,7 +144,7 @@ wellComparison <- function(park, field.season, site) {
 #' @export
 #'
 #' @examples
-discreteWellComparisonPlot <- function(park, field.season, site) {
+wellComparisonPlot <- function(park, field.season, site) {
   wellData <- wellComparison(park = park, field.season = field.season, site = site) |>
     dplyr::filter(Parameter %in% c("DepthToWaterFromGround"))
   
