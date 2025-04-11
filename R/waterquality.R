@@ -1,8 +1,8 @@
 #' Return median surface water quality measurements
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional, e.g., "DEVA"
+#' @param field.season Optional, e.g., c("2017", "2019", "2020")
+#' @param site Optional, e.g., "JOTR_P_FORT0"
 #'
 #' @returns Tibble
 #' @export
@@ -16,10 +16,7 @@ waterQuality <- function(park, field.season, site) {
     dplyr::filter(MeasurementDepth_ft == min(MeasurementDepth_ft) | is.na(MeasurementDepth_ft)) |>
     dplyr::ungroup() |>
     dplyr::select(-c("IsDepthProfile", "MeasurementDepth_ft", "DepthToBottom_ft")) |>
-    dplyr::arrange(SubsiteCode, DateTime) |>
-    dplyr::group_by(Park, SiteCode, SubsiteCode) |>
-    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "days") > 120)), "_", SubsiteCode)) |>
-    dplyr::ungroup()
+    dplyr::arrange(SubsiteCode, DateTime)
   
   return(qualitySurface)
 }
@@ -35,11 +32,14 @@ waterQuality <- function(park, field.season, site) {
 #'
 #' @examples
 temperaturePlot <- function(park, field.season, site) {
-  qualitySurface <- waterQuality(park = park, field.season = field.season, site = site)
+  qualitySurface <- waterQuality(park = park, field.season = field.season, site = site) |>
+    dplyr::group_by(Park, SiteCode, SubsiteCode) |>
+    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "days") > 120)), "_", SubsiteCode)) |>
+    dplyr::ungroup()
   
   plot <- ggplot2::ggplot(data = qualitySurface,
                           ggplot2::aes(x = DateTime,
-                                       y = Temp_C,
+                                       y = Temperature_C,
                                        color = SubsiteCode,
                                        shape = SubsiteCode,
                                        group = Gap
