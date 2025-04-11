@@ -194,11 +194,14 @@ WrangleAGOL <- function(...) {
   filltime_median <- agol_layers$FillTime |>
     dplyr::left_join(visit_q_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::select(Park, SiteCode, DateTime, FillTime_sec) |>
+    dplyr::mutate_if(is.numeric, dplyr::na_if, -9999) |>  # Replace -9999 or -999 with NA
+    dplyr::mutate_if(is.numeric, dplyr::na_if, -999) |>
     dplyr::group_by(Park, SiteCode, DateTime) |>
     dplyr::mutate(FillTime_sec = median(FillTime_sec, na.rm = TRUE)) |>
     dplyr::ungroup() |>
     unique() |>
-    dplyr::arrange(SiteCode, DateTime)
+    dplyr::arrange(SiteCode, DateTime) |>
+    dplyr::mutate(FillTime_sec = round(FillTime_sec, 2))
   
   welldepth_median <- agol_layers$WellDepth |>
     dplyr::left_join(visit_w_info, by = c("parentglobalid" = "globalid")) |>
@@ -209,7 +212,8 @@ WrangleAGOL <- function(...) {
     dplyr::mutate(WLBelowLSD_ft = median(WLBelowLSD_ft, na.rm = TRUE)) |>
     dplyr::ungroup() |>
     unique() |>
-    dplyr::arrange(SiteCode, DateTime)
+    dplyr::arrange(SiteCode, DateTime) |>
+    dplyr::mutate(WLBelowLSD_ft = round(WLBelowLSD_ft, 3))
   
   wellsecondary_median <- agol_layers$WellSecondary |>
     dplyr::left_join(visit_w_info, by = c("parentglobalid" = "globalid")) |>
@@ -220,7 +224,8 @@ WrangleAGOL <- function(...) {
     dplyr::mutate(WLBelowLSD_Secondary_ft = median(WLBelowLSD_Secondary_ft)) |>
     dplyr::ungroup() |>
     unique() |>
-    dplyr::arrange(SiteCode, DateTime)
+    dplyr::arrange(SiteCode, DateTime) |>
+    dplyr::mutate(WLBelowLSD_Secondary_ft = round(WLBelowLSD_Secondary_ft, 3))
   
   # ----- Sites -----
   
@@ -317,7 +322,13 @@ WrangleAGOL <- function(...) {
                                              DO_Flag == 4 ~ "Critical",
                                              TRUE ~ NA_character_)) |>
     dplyr::select(Park, SiteCode, SubsiteCode, DateTime, IsDepthProfile, MeasurementDepth_ft, DepthToBottom_ft, Temperature_C, Temperature_Flag, pH, pH_Flag, SpCond_uS_per_cm, SpCond_Flag, DO_mg_per_L, DO_percent, DO_Flag) |>
-    dplyr::arrange(SiteCode, DateTime)
+    dplyr::arrange(SiteCode, DateTime) |>
+    dplyr::mutate(Temperature_C = round(Temperature_C, 2),
+                  pH = round(pH, 2),
+                  SpCond_uS_per_cm = dplyr::case_when(SpCond_uS_per_cm > 600 ~ round(SpCond_uS_per_cm, 0),
+                                                      TRUE ~ round(SpCond_uS_per_cm, 1)),
+                  DO_mg_per_L = round(DO_mg_per_L, 2),
+                  DO_percent = round(DO_percent, 1))
   
   # ----- Outlet -----
   
@@ -360,7 +371,9 @@ WrangleAGOL <- function(...) {
                   Discharge_cfs = (ContainerVolume_L/FillTime_sec)*(100/PercentFlowCaptured)*0.035315) |>
     dplyr::select(Park, SiteCode, DateTime, ContainerVolume_L, PercentFlowCaptured, FillTime_sec, Discharge_L_per_sec, Discharge_cfs) |>
     dplyr::arrange(SiteCode, DateTime) |>
-    dplyr::filter(!(is.na(FillTime_sec)))
+    dplyr::filter(!(is.na(FillTime_sec))) |>
+    dplyr::mutate(Discharge_L_per_sec = round(Discharge_L_per_sec, 3),
+                  Discharge_cfs = round(Discharge_cfs, 3))
   
   # ----- VisitBiennial -----
   
@@ -375,14 +388,18 @@ WrangleAGOL <- function(...) {
   
   # ----- BMISample -----
 
-  bmi_b_info <- agol_layers$BMISample |>
+  bmi_b_info <- agol_layers$VisitBiennial |>
     dplyr::select(SpringSubsite, globalid, parentglobalid) |>
     dplyr::rename(SubsiteCode_BMI = SpringSubsite)
     
   agol_layers$BMISample <- agol_layers$BMISample |>
     dplyr::left_join(visit_b_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::rename(SubsiteCode_BMI = SpringSubsite) |>
-    dplyr::select(Park, SiteCode, SubsiteCode_BMI, DateTime, BMIMethod, NetSize, QuadratSize, BMISampleNumber, BMITotalSamples, BMITotalNumJars, QuadratsList, QuadratsCount, PoolsCount) |>
+    dplyr::mutate(QuadratSize_cm = dplyr::case_when(QuadratSize == 1010 ~ 10,
+                                                    QuadratSize == 3030 ~ 30,
+                                                    TRUE ~ NA_integer_)) |>
+    dplyr::filter(BMICollected == "Y") |>
+    dplyr::select(Park, SiteCode, SubsiteCode_BMI, DateTime, BMIMethod, QuadratSize_cm) |>
     dplyr::arrange(SiteCode, DateTime, SubsiteCode_BMI)
   
   # ----- BMIQuadrat -----
@@ -409,7 +426,8 @@ WrangleAGOL <- function(...) {
                   LabName = laboratory,
                   LabSampleID = lab_number,
                   SubsiteCode_Chem = ChemLocation) |>
-    dplyr::arrange(SiteCode, DateTime)
+    dplyr::arrange(SiteCode, DateTime) |>
+    dplyr::filter(!is.na(LabSampleID))
   
   # ----- VisitWell -----
   
