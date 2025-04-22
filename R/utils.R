@@ -122,9 +122,9 @@ ReadAGOL <- function(agol_username = "mojn_data", agol_password = keyring::key_g
   chem$data[['DummySpatialLayer']] <- NULL
   names(chem$data) <- c("ChemResults")
   
-  # Import lookup feature service
-  lookup <- fetchagol::fetchRawData(lookup_url, agol_username, agol_password)
-  lookup <- fetchagol::cleanData(lookup)
+  # Import lookup feature service - DEPRECATED
+  # lookup <- fetchagol::fetchRawData(lookup_url, agol_username, agol_password)
+  # lookup <- fetchagol::cleanData(lookup)
   
   # Tidy bmi import data
   
