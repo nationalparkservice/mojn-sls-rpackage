@@ -387,8 +387,8 @@ WrangleAGOL <- function(...) {
     dplyr::arrange(SiteCode, DateTime)
   
   # ----- BMISample -----
-
-  bmi_b_info <- agol_layers$VisitBiennial |>
+  
+  bmi_b_info <- agol_layers$BMISample |> # Leave this code here. Must be run before agol_layers$BMISample gets modified.
     dplyr::select(SpringSubsite, globalid, parentglobalid) |>
     dplyr::rename(SubsiteCode_BMI = SpringSubsite)
     
@@ -403,7 +403,7 @@ WrangleAGOL <- function(...) {
     dplyr::arrange(SiteCode, DateTime, SubsiteCode_BMI)
   
   # ----- BMIQuadrat -----
-
+  
   agol_layers$BMIQuadrat <- agol_layers$BMIQuadrat |>
     dplyr::left_join(bmi_b_info, by = c("parentglobalid" = "globalid")) |>
     dplyr::left_join(visit_b_info, by = c("parentglobalid.y" = "globalid")) |>
