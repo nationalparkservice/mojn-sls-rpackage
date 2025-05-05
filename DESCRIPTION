@@ -1,0 +1,42 @@
+Package: selectedlargesprings
+Type: Package
+Title: Selected Large Springs Protocol R Package
+Version: 0.1.0
+Authors@R: c(person("Jennifer", "Bailard", email = "jennifer_bailard@nps.gov", role=c("aut","cre")),
+    person("Sarah", "Wright", email = "sarah_wright@nps.gov", role=c("aut")))
+Description: This R package is intended to provide automated QA/QC, visualization, and
+    basic analysis and statistical summaries of data collected for the Selected Large Springs
+    monitoring protocol.
+License: CC0
+Encoding: UTF-8
+LazyData: true
+Imports:
+    dbplyr,
+    dplyr,
+    ggplot2,
+    knitr,
+    lubridate,
+    odbc,
+    plyr,
+    pool,
+    rmarkdown,
+    roxygen2,
+    stringr,
+    testthat,
+    tidyr,
+    magrittr,
+    leaflet
+Suggests:
+    crosstalk,
+    ggpmisc,
+    gridExtra,
+    htmltools,
+    httr,
+    jsonlite,
+    rappdirs,
+    readr,
+    tibble,
+    tidytext,
+    utf8,
+    here
+RoxygenNote: 7.3.1
