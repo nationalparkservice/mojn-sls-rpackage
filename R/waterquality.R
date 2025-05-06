@@ -69,7 +69,10 @@ temperaturePlot <- function(park, field.season, site) {
 #'
 #' @examples
 phPlot <- function(park, field.season, site) {
-  qualitySurface <- waterQuality(park = park, field.season = field.season, site = site)
+  qualitySurface <- waterQuality(park = park, field.season = field.season, site = site) |>
+    dplyr::group_by(Park, SiteCode, SubsiteCode) |>
+    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "days") > 120)), "_", SubsiteCode)) |>
+    dplyr::ungroup()
   
   plot <- ggplot2::ggplot(data = qualitySurface,
                           ggplot2::aes(x = DateTime,
@@ -103,7 +106,10 @@ phPlot <- function(park, field.season, site) {
 #'
 #' @examples
 spcondPlot <- function(park, field.season, site) {
-  qualitySurface <- waterQuality(park = park, field.season = field.season, site = site)
+  qualitySurface <- waterQuality(park = park, field.season = field.season, site = site) |>
+    dplyr::group_by(Park, SiteCode, SubsiteCode) |>
+    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "days") > 120)), "_", SubsiteCode)) |>
+    dplyr::ungroup()
   
   plot <- ggplot2::ggplot(data = qualitySurface,
                           ggplot2::aes(x = DateTime,
@@ -137,7 +143,10 @@ spcondPlot <- function(park, field.season, site) {
 #'
 #' @examples
 doPlot <- function(park, field.season, site) {
-  qualitySurface <- waterQuality(park = park, field.season = field.season, site = site)
+  qualitySurface <- waterQuality(park = park, field.season = field.season, site = site) |>
+    dplyr::group_by(Park, SiteCode, SubsiteCode) |>
+    dplyr::mutate(Gap = paste0(cumsum(c(0, diff(DateTime, units = "days") > 120)), "_", SubsiteCode)) |>
+    dplyr::ungroup()
   
   plot <- ggplot2::ggplot(data = qualitySurface,
                           ggplot2::aes(x = DateTime,
