@@ -1,15 +1,15 @@
 #' Return list of sample metrics determined by laboratory
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
 #' @returns Tibble
 #' @exportfe
 #'
 #' @examples
-bmiMetrics <- function(park, field.season, site) {
-  metricsImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "BMIMetrics")
+bmiMetrics <- function(park, site, field.season) {
+  metricsImport <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "BMIMetrics")
   
   metricsList <- metricsImport |>
     dplyr::filter(AnalysisType == "Routine") |>
@@ -75,31 +75,31 @@ bmiMetrics <- function(park, field.season, site) {
   return(metricsList)
 } 
 
-#' Return taxonomic list of aquatic invertebrates identified in samples
+#' Return list of aquatic invertebrate taxa identified in samples
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
 #' @returns Tibble
 #' @export
 #'
 #' @examples
-bmiSpecies <- function(park, field.season, site) {
-  speciesImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "BMISpecies")
+bmiSpecies <- function(park, site, field.season) {
+  speciesImport <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "BMISpecies")
   
   invertList <- speciesImport |>
-    dplyr::mutate(Phylum = dplyr::case_when(ScientificName == "Oligochaeta" ~ "Annelida",
-                                            ScientificName == "Nematoda" ~ "Nematoda",
-                                            ScientificName == "Lumbriculata" ~ "Annelida",
-                                            ScientificName == "Platyhelminthes" ~ "Platyhelminthes",
-                                            ScientificName == "Xenacoelomorpha" ~ "Xenacoelomorpha",
+    dplyr::mutate(Phylum = dplyr::case_when(ScientificName == "Oligochaeta" & is.na(Phylum) ~ "Annelida",
+                                            ScientificName == "Nematoda" & is.na(Phylum) ~ "Nematoda",
+                                            ScientificName == "Lumbriculata" & is.na(Phylum) ~ "Annelida",
+                                            ScientificName == "Platyhelminthes" & is.na(Phylum) ~ "Platyhelminthes",
+                                            ScientificName == "Xenacoelomorpha" & is.na(Phylum) ~ "Xenacoelomorpha",
                                             TRUE ~ Phylum)) |>
-    dplyr::mutate(Class = dplyr::case_when(ScientificName == "Oligochaeta" ~ "Clitellata",
-                                           ScientificName == "Lumbriculata" ~ "Clitellata",
-                                           ScientificName == "Branchiobdellidae" ~ "Clitellata",
-                                           ScientificName == "Erpobdellidae" ~ "Clitellata",
-                                           ScientificName == "Collembola" ~ "Collembola",
+    dplyr::mutate(Class = dplyr::case_when(ScientificName == "Oligochaeta" & is.na(Class) ~ "Clitellata",
+                                           ScientificName == "Lumbriculata" & is.na(Class) ~ "Clitellata",
+                                           ScientificName == "Branchiobdellidae" & is.na(Class) ~ "Clitellata",
+                                           ScientificName == "Erpobdellidae" & is.na(Class) ~ "Clitellata",
+                                           ScientificName == "Collembola" & is.na(Class) ~ "Collembola",
                                            TRUE ~ Class)) |>
     dplyr::filter(!(ScientificName %in% c("Actinopterygii", "Anura"))) |>
     dplyr::select(-c("SampleID", "SiteName"))
@@ -109,16 +109,16 @@ bmiSpecies <- function(park, field.season, site) {
 
 #' Return list of invasive aquatic invertebrates identified in samples
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
 #' @returns Tibble
 #' @exportfe
 #'
 #' @examples
-bmiInvasives <- function(park, field.season, site) {
-  metricsImport <- ReadAndFilterData(park = park, field.season = field.season, site = site, data.name = "BMIMetrics")
+bmiInvasives <- function(park, site, field.season) {
+  metricsImport <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "BMIMetrics")
   
   invasivesList <- metricsImport |>
     dplyr::select(Park, SiteCode, SubsiteCode, FieldSeason, CollectionDate, InvasiveSpeciesList) |>
@@ -129,18 +129,18 @@ bmiInvasives <- function(park, field.season, site) {
   return(invasivesList)
 }
 
-#' Title
+#' Plot overall density and richness metrics
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns ggplot object
 #' @export
 #'
 #' @examples
-bmiOverallPlot <- function(park, field.season, site) {
-  metricsList <- bmiMetrics(park = park, field.season = field.season, site = site)
+bmiOverallPlot <- function(park, site, field.season) {
+  metricsList <- bmiMetrics(park = park, site = site, field.season = field.season)
   
   overall <- metricsList |>
     dplyr::mutate(Year = as.Date(FieldSeason, format = "%Y")) |>
@@ -168,18 +168,58 @@ bmiOverallPlot <- function(park, field.season, site) {
   return(plot) 
 }
 
-#' Title
+#' Plot taxonomic dominance metrics
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns ggplot object
 #' @export
 #'
 #' @examples
-bmiTaxaPlot <- function(park, field.season, site) {
-  metricsList <- bmiMetrics(park = park, field.season = field.season, site = site)
+bmiDominancePlot <- function(park, site, field.season) {
+  metricsList <- bmiMetrics(park = park, site = site, field.season = field.season)
+  
+  overall <- metricsList |>
+    dplyr::mutate(Year = as.Date(FieldSeason, format = "%Y")) |>
+    dplyr::filter(Category %in% c("Dominant Family", "Dominant Taxon"))
+  
+  plot <- ggplot2::ggplot(data = overall,
+                          ggplot2::aes(x = Year,
+                                       y = Value,
+                                       color = Category,
+                                       # shape = Type,
+                                       group = Category)) +
+    ggplot2::geom_line(linewidth = 1) +
+    ggplot2::geom_point(size = 2.5) +
+    khroma::scale_color_discreterainbow() +
+    ggplot2::labs(title = "",
+                  x = "Year",
+                  y = "Count") +
+    ggplot2::scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    ggplot2::scale_y_continuous(limits = c(0, NA),
+                                labels = function(x) paste0(x*100, "%")) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "bottom") +
+    ggplot2::facet_grid(Metric~SubsiteCode,
+                        scales = "free_y")
+  
+  return(plot) 
+}
+
+#' Plot taxonomic density and richness metrics
+#'
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
+#'
+#' @returns ggplot object
+#' @export
+#'
+#' @examples
+bmiTaxaPlot <- function(park, site, field.season) {
+  metricsList <- bmiMetrics(park = park, site = site, field.season = field.season)
   
   taxa <- metricsList |>
     dplyr::filter(Category == "Taxa Group")
@@ -206,23 +246,23 @@ bmiTaxaPlot <- function(park, field.season, site) {
   return(plot)
 }
 
-#' Title
+#' Plot function feeding group density and richness metrics
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns ggplot object
 #' @export
 #'
 #' @examples
-bmiFunctionalPlot <- function(park, field.season, site) {
-  metricsList <- bmiMetrics(park = park, field.season = field.season, site = site)
+bmiFunctionalPlot <- function(park, site, field.season) {
+  metricsList <- bmiMetrics(park = park, site = site, field.season = field.season)
 
   functional <- metricsList |>
     dplyr::filter(Category == "Functional Feeding Group")
   
-  plot <- ggplot2::ggplot(data = functional |> dplyr::filter(Park == "LAKE"),
+  plot <- ggplot2::ggplot(data = functional,
                           ggplot2::aes(x = FieldSeason,
                                        y = Value,
                                        color = Type,
@@ -244,23 +284,23 @@ bmiFunctionalPlot <- function(park, field.season, site) {
   return(plot)
 }
 
-#' Title
+#' Plot habit density and richness metrics
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns ggplot object
 #' @export
 #'
 #' @examples
-bmiHabitPlot <- function(park, field.season, site) {
-  metricsList <- bmiMetrics(park = park, field.season = field.season, site = site)
+bmiHabitPlot <- function(park, site, field.season) {
+  metricsList <- bmiMetrics(park = park, site = site, field.season = field.season)
 
   habit <- metricsList |>
     dplyr::filter(Category == "Habit")
   
-  plot <- ggplot2::ggplot(data = habit |> dplyr::filter(Park == "LAKE"),
+  plot <- ggplot2::ggplot(data = habit,
                           ggplot2::aes(x = FieldSeason,
                                        y = Value,
                                        color = Type,
@@ -282,23 +322,23 @@ bmiHabitPlot <- function(park, field.season, site) {
   return(plot)
 }
 
-#' Title
+#' Plot tolerance density and richness metrics
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
-#' @returns
+#' @returns ggplot object
 #' @export
 #'
 #' @examples
-bmiTolerancePlot <- function(park, field.season, site) {
-  metricsList <- bmiMetrics(park = park, field.season = field.season, site = site)
+bmiTolerancePlot <- function(park, site, field.season) {
+  metricsList <- bmiMetrics(park = park, site = site, field.season = field.season)
   
   tolerance <- metricsList |>
     dplyr::filter(Category == "Sensitivity")
   
-  plot <- ggplot2::ggplot(data = tolerance |> dplyr::filter(Park == "LAKE"),
+  plot <- ggplot2::ggplot(data = tolerance,
                           ggplot2::aes(x = FieldSeason,
                                        y = Value,
                                        color = Type,
@@ -320,23 +360,23 @@ bmiTolerancePlot <- function(park, field.season, site) {
   return(plot)
 }
 
-#' Title
+#' Plot diversity indices
 #'
-#' @param park 
-#' @param field.season 
-#' @param site 
+#' @param park Optional. Four-letter park code to filter on, e.g. "PARA".
+#' @param site Optional. Site code to filter on, e.g. "PARA_P_TASS0".
+#' @param field.season Optional. Field season name to filter on, e.g. "2022".
 #'
 #' @returns
 #' @export
 #'
 #' @examples
-bmiIndexPlot <- function(park, field.season, site) {
-  metricsList <- bmiMetrics(park = park, field.season = field.season, site = site)
+bmiIndexPlot <- function(park, site, field.season) {
+  metricsList <- bmiMetrics(park = park, site = site, field.season = field.season)
 
   index <- metricsList |>
     dplyr::filter(Metric == "Index")
   
-  plot <- ggplot2::ggplot(data = index |> dplyr::filter(Park == "LAKE"),
+  plot <- ggplot2::ggplot(data = index,
                           ggplot2::aes(x = FieldSeason,
                                        y = Value,
                                        # color = Category,
