@@ -98,9 +98,12 @@ chemLabDuplicates <- function(park, site, field.season) {
   chem <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "ChemResults")
   
   labDupes <- chem |>
-    dplyr::select(Park, SiteCode, SubsiteCode_Chem, VisitDate, SampleType, AnalysisType, Characteristic, Unit, Value)
+    dplyr::select(Park, SiteCode, SubsiteCode_Chem, VisitDate, FieldSeason, SampleType, AnalysisType, Characteristic, Unit, Value)
   
   labDupesWide <- tidyr::pivot_wider(data = labDupes, names_from = AnalysisType, values_from = Value)
+  
+  if(!"Duplicate" %in% names(labDupesWide)) labDupesWide <- labDupesWide|> tibble::add_column(Duplicate = NA)
+  if(!"Triplicate" %in% names(labDupesWide)) labDupesWide <- labDupesWide|> tibble::add_column(Triplicate = NA)
   
   labDupesList <- labDupesWide |>
     dplyr::filter(!is.na(Duplicate)) |>
@@ -134,7 +137,9 @@ chemFieldReplicates <- function(park, site, field.season) {
    dplyr::filter(SampleType %in% c("Routine", "Replicate"))
   
   fieldRepsWide <- tidyr::pivot_wider(data = fieldReps, names_from = SampleType, values_from = Value)
-
+  
+  if(!"Replicate" %in% names(fieldRepsWide)) fieldRepsWide <- fieldRepsWide|> tibble::add_column(Replicate = NA)
+  
   fieldRepsList <- fieldRepsWide |>
     dplyr::filter(!is.na(Replicate)) |>
     dplyr::mutate(RPD = round(((pmax(Routine, Replicate) - pmin(Routine, Replicate))/((pmax(Routine, Replicate) + pmin(Routine, Replicate))/2))*100, 2)) |>
