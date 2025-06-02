@@ -559,7 +559,9 @@ WrangleAGOL <- function(...) {
     dplyr::mutate(SiteCode = dplyr::case_when(Project == "STLK" ~ SubsiteCode,
                                               TRUE ~ SiteCode)) |>
     dplyr::select(SampleID, Project, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate,
-                  VisitType, AnalysisType, SamplerType, Habitat, Ecosystem, Area, FieldSplit, LabSplit, SplitCount, FieldNotes, LabNotes) |>
+                  NAMC_Latitude, NAMC_Longitude, Customer_Latitude, Customer_Longitude,
+                  VisitType, AnalysisType, SampleType, SamplerType, Habitat, Ecosystem,
+                  Area, FieldSplit, LabSplit, SplitCount, FieldNotes, LabNotes) |>
     dplyr::arrange(SiteCode, CollectionDate) |>
     dplyr::mutate(SiteName = dplyr::case_when(grepl("Baker Creek|BAKR2|BAKR3", SiteName) ~ "Baker Creek",
                                               grepl("Lehman|LHMN2", SiteName) ~ "Lehman Creek",
