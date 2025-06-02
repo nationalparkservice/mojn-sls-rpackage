@@ -475,7 +475,19 @@ WrangleAGOL <- function(...) {
                   Order = Order_) |>
     dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, Phylum, Class, Order, Family, SubFamily, Genus, Species, ScientificName, OTUName, LifeStage, Notes, LabCount, BigRareCount) |>
     dplyr::arrange(SiteCode, CollectionDate) |>
-    dplyr::filter(!(ScientificName %in% c("Actinopterygii", "Anura")))
+    dplyr::filter(!(ScientificName %in% c("Actinopterygii", "Anura"))) |>
+    dplyr::mutate(Phylum = dplyr::case_when(ScientificName == "Oligochaeta" & is.na(Phylum) ~ "Annelida",
+                                            ScientificName == "Nematoda" & is.na(Phylum) ~ "Nematoda",
+                                            ScientificName == "Lumbriculata" & is.na(Phylum) ~ "Annelida",
+                                            ScientificName == "Platyhelminthes" & is.na(Phylum) ~ "Platyhelminthes",
+                                            ScientificName == "Xenacoelomorpha" & is.na(Phylum) ~ "Xenacoelomorpha",
+                                            TRUE ~ Phylum)) |>
+    dplyr::mutate(Class = dplyr::case_when(ScientificName == "Oligochaeta" & is.na(Class) ~ "Clitellata",
+                                           ScientificName == "Lumbriculata" & is.na(Class) ~ "Clitellata",
+                                           ScientificName == "Branchiobdellidae" & is.na(Class) ~ "Clitellata",
+                                           ScientificName == "Erpobdellidae" & is.na(Class) ~ "Clitellata",
+                                           ScientificName == "Collembola" & is.na(Class) ~ "Collembola",
+                                           TRUE ~ Class))
   
   # ----- BMIMetrics -----
   

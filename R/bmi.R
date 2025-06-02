@@ -89,18 +89,6 @@ bmiSpecies <- function(park, site, field.season) {
   speciesImport <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "BMISpecies")
   
   invertList <- speciesImport |>
-    dplyr::mutate(Phylum = dplyr::case_when(ScientificName == "Oligochaeta" & is.na(Phylum) ~ "Annelida",
-                                            ScientificName == "Nematoda" & is.na(Phylum) ~ "Nematoda",
-                                            ScientificName == "Lumbriculata" & is.na(Phylum) ~ "Annelida",
-                                            ScientificName == "Platyhelminthes" & is.na(Phylum) ~ "Platyhelminthes",
-                                            ScientificName == "Xenacoelomorpha" & is.na(Phylum) ~ "Xenacoelomorpha",
-                                            TRUE ~ Phylum)) |>
-    dplyr::mutate(Class = dplyr::case_when(ScientificName == "Oligochaeta" & is.na(Class) ~ "Clitellata",
-                                           ScientificName == "Lumbriculata" & is.na(Class) ~ "Clitellata",
-                                           ScientificName == "Branchiobdellidae" & is.na(Class) ~ "Clitellata",
-                                           ScientificName == "Erpobdellidae" & is.na(Class) ~ "Clitellata",
-                                           ScientificName == "Collembola" & is.na(Class) ~ "Collembola",
-                                           TRUE ~ Class)) |>
     dplyr::select(-c("SampleID", "SiteName"))
     
   return(invertList)
