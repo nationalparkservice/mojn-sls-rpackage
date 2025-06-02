@@ -130,7 +130,7 @@ ReadAGOL <- function(agol_username = "mojn_data", agol_password = keyring::key_g
   
   bmi$data <- lapply(bmi$data, function(df) {
     df |>
-      dplyr::filter(Project %in% c("SLS")) |>
+      dplyr::filter(Project %in% c("SLS", "STLK")) |>
       dplyr::mutate(CollectionDate = as.Date(CollectionDateText, tz = "America/Los_Angeles"))
   })
   
@@ -473,39 +473,117 @@ WrangleAGOL <- function(...) {
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup,
                   Order = Order_) |>
-    dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, Phylum, Class, Order, Family, SubFamily, Genus, Species, ScientificName, OTUName, LifeStage, Notes, LabCount, BigRareCount) |>
+    dplyr::mutate(SiteCode = dplyr::case_when(Project == "STLK" ~ SubsiteCode,
+                                              TRUE ~ SiteCode)) |>
+    dplyr::select(SampleID, Laboratory, Project, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate,
+                  Phylum, Class, Order, Family, SubFamily, Genus, Species,
+                  ScientificName, OTUName, LifeStage, Notes, LabCount, BigRareCount) |>
     dplyr::arrange(SiteCode, CollectionDate) |>
     dplyr::filter(!(ScientificName %in% c("Actinopterygii", "Anura"))) |>
-    dplyr::mutate(Phylum = dplyr::case_when(ScientificName == "Oligochaeta" & is.na(Phylum) ~ "Annelida",
-                                            ScientificName == "Nematoda" & is.na(Phylum) ~ "Nematoda",
-                                            ScientificName == "Lumbriculata" & is.na(Phylum) ~ "Annelida",
-                                            ScientificName == "Platyhelminthes" & is.na(Phylum) ~ "Platyhelminthes",
-                                            ScientificName == "Xenacoelomorpha" & is.na(Phylum) ~ "Xenacoelomorpha",
+    dplyr::mutate(Phylum = dplyr::case_when(ScientificName == "Oligochaeta" & (is.na(Phylum) | Phylum == "NA") ~ "Annelida",
+                                            ScientificName == "Nematoda" & (is.na(Phylum) | Phylum == "NA") ~ "Nematoda",
+                                            ScientificName == "Lumbriculata" & (is.na(Phylum) | Phylum == "NA") ~ "Annelida",
+                                            ScientificName == "Platyhelminthes" & (is.na(Phylum) | Phylum == "NA") ~ "Platyhelminthes",
+                                            ScientificName == "Xenacoelomorpha" & (is.na(Phylum) | Phylum == "NA") ~ "Xenacoelomorpha",
                                             TRUE ~ Phylum)) |>
-    dplyr::mutate(Class = dplyr::case_when(ScientificName == "Oligochaeta" & is.na(Class) ~ "Clitellata",
-                                           ScientificName == "Lumbriculata" & is.na(Class) ~ "Clitellata",
-                                           ScientificName == "Branchiobdellidae" & is.na(Class) ~ "Clitellata",
-                                           ScientificName == "Erpobdellidae" & is.na(Class) ~ "Clitellata",
-                                           ScientificName == "Collembola" & is.na(Class) ~ "Collembola",
-                                           TRUE ~ Class))
+    dplyr::mutate(Class = dplyr::case_when(ScientificName == "Oligochaeta" & (is.na(Class) | Class == "NA") ~ "Clitellata",
+                                           ScientificName == "Lumbriculata" & (is.na(Class) | Class == "NA") ~ "Clitellata",
+                                           ScientificName == "Branchiobdellidae" & (is.na(Class) | Class == "NA") ~ "Clitellata",
+                                           ScientificName == "Erpobdellidae"  & (is.na(Class) | Class == "NA") ~ "Clitellata",
+                                           ScientificName == "Collembola" & (is.na(Class) | Class == "NA") ~ "Collembola",
+                                           TRUE ~ Class)) |>
+    dplyr::mutate(SiteName = dplyr::case_when(grepl("Baker Creek|BAKR2|BAKR3", SiteName) ~ "Baker Creek",
+                                              grepl("Lehman|LHMN2", SiteName) ~ "Lehman Creek",
+                                              grepl("Mill|MILL1", SiteName) ~ "Mill Creek",
+                                              grepl("Pine|PINE1", SiteName) ~ "Pine Creek",
+                                              grepl("Ridge|RDGE1", SiteName) ~ "Ridge Creek",
+                                              grepl("Shingle|SHNG1", SiteName) ~ "Shingle Creek",
+                                              grepl("South Fork|SFBW1", SiteName) ~ "South Fork Big Wash",
+                                              grepl("Snake|SNKE4", SiteName) ~ "Snake Creek",
+                                              grepl("Strawberry Creek|STRW2", SiteName) ~ "Strawberry Creek",
+                                              grepl("Mound|MOUN0|MOUND", SiteName) ~ "Mound Spring",
+                                              grepl("Nevares|NEVA0", SiteName) ~ "Nevares Spring",
+                                              grepl("Saratoga|SARA0", SiteName) ~ "Saratoga Spring",
+                                              grepl("Texas|TEXA0", SiteName) ~ "Texas Spring",
+                                              grepl("Travertine|TRAV0", SiteName) ~ "Travertine Spring",
+                                              grepl("Boiler|BOIL0", SiteName) ~ "Boiler Spring",
+                                              grepl("Marmot|MARM0", SiteName) ~ "Marmot Spring",
+                                              grepl("Strawberry Spring|STRW0", SiteName) ~ "Strawberry Spring",
+                                              grepl("Fortynine|FORT0", SiteName) ~ "Fortynine Palms Oasis",
+                                              grepl("Smithwater|SMIT0", SiteName) ~ "Smithwater Canyon Spring",
+                                              grepl("Blue Point|BLUE0", SiteName) ~ "Blue Point Spring",
+                                              grepl("Pakoon|PAKO0", SiteName) ~ "Pakoon Spring",
+                                              grepl("Tassi|TASS0", SiteName) ~ "Tassi Spring",
+                                              TRUE ~ SiteName))
   
   # ----- BMIMetrics -----
   
   agol_layers$BMIMetrics <- agol_layers$BMIMetrics |>
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup) |>
-    dplyr::select(SampleID, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, AnalysisType, InvasiveSpeciesList, Attribute, Value) |>
+    dplyr::mutate(SiteCode = dplyr::case_when(Project == "STLK" ~ SubsiteCode,
+                                              TRUE ~ SiteCode)) |>
+    dplyr::select(SampleID, Project, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, AnalysisType, InvasiveSpeciesList, Attribute, Value) |>
     dplyr::arrange(SiteCode, CollectionDate) |>
     dplyr::mutate(Value = dplyr::case_when(grepl("SEV|DSP", SubsiteCode) & grepl("Density", Attribute) ~ NA,
-                                           TRUE ~ Value))
+                                           TRUE ~ Value)) |>
+    dplyr::mutate(SiteName = dplyr::case_when(grepl("Baker Creek|BAKR2|BAKR3", SiteName) ~ "Baker Creek",
+                                              grepl("Lehman|LHMN2", SiteName) ~ "Lehman Creek",
+                                              grepl("Mill|MILL1", SiteName) ~ "Mill Creek",
+                                              grepl("Pine|PINE1", SiteName) ~ "Pine Creek",
+                                              grepl("Ridge|RDGE1", SiteName) ~ "Ridge Creek",
+                                              grepl("Shingle|SHNG1", SiteName) ~ "Shingle Creek",
+                                              grepl("South Fork|SFBW1", SiteName) ~ "South Fork Big Wash",
+                                              grepl("Snake|SNKE4", SiteName) ~ "Snake Creek",
+                                              grepl("Strawberry Creek|STRW2", SiteName) ~ "Strawberry Creek",
+                                              grepl("Mound|MOUN0|MOUND", SiteName) ~ "Mound Spring",
+                                              grepl("Nevares|NEVA0", SiteName) ~ "Nevares Spring",
+                                              grepl("Saratoga|SARA0", SiteName) ~ "Saratoga Spring",
+                                              grepl("Texas|TEXA0", SiteName) ~ "Texas Spring",
+                                              grepl("Travertine|TRAV0", SiteName) ~ "Travertine Spring",
+                                              grepl("Boiler|BOIL0", SiteName) ~ "Boiler Spring",
+                                              grepl("Marmot|MARM0", SiteName) ~ "Marmot Spring",
+                                              grepl("Strawberry Spring|STRW0", SiteName) ~ "Strawberry Spring",
+                                              grepl("Fortynine|FORT0", SiteName) ~ "Fortynine Palms Oasis",
+                                              grepl("Smithwater|SMIT0", SiteName) ~ "Smithwater Canyon Spring",
+                                              grepl("Blue Point|BLUE0", SiteName) ~ "Blue Point Spring",
+                                              grepl("Pakoon|PAKO0", SiteName) ~ "Pakoon Spring",
+                                              grepl("Tassi|TASS0", SiteName) ~ "Tassi Spring",
+                                              TRUE ~ SiteName))
   
   # ----- BMIVisit -----
   
   agol_layers$BMIVisit <- agol_layers$BMIVisit |>
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup) |>
-    dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, VisitType, AnalysisType, SamplerType, Habitat, Ecosystem, Area, FieldSplit, LabSplit, SplitCount, FieldNotes, LabNotes) |>
-    dplyr::arrange(SiteCode, CollectionDate)
+    dplyr::mutate(SiteCode = dplyr::case_when(Project == "STLK" ~ SubsiteCode,
+                                              TRUE ~ SiteCode)) |>
+    dplyr::select(SampleID, Project, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate,
+                  VisitType, AnalysisType, SamplerType, Habitat, Ecosystem, Area, FieldSplit, LabSplit, SplitCount, FieldNotes, LabNotes) |>
+    dplyr::arrange(SiteCode, CollectionDate) |>
+    dplyr::mutate(SiteName = dplyr::case_when(grepl("Baker Creek|BAKR2|BAKR3", SiteName) ~ "Baker Creek",
+                                              grepl("Lehman|LHMN2", SiteName) ~ "Lehman Creek",
+                                              grepl("Mill|MILL1", SiteName) ~ "Mill Creek",
+                                              grepl("Pine|PINE1", SiteName) ~ "Pine Creek",
+                                              grepl("Ridge|RDGE1", SiteName) ~ "Ridge Creek",
+                                              grepl("Shingle|SHNG1", SiteName) ~ "Shingle Creek",
+                                              grepl("South Fork|SFBW1", SiteName) ~ "South Fork Big Wash",
+                                              grepl("Snake|SNKE4", SiteName) ~ "Snake Creek",
+                                              grepl("Strawberry Creek|STRW2", SiteName) ~ "Strawberry Creek",
+                                              grepl("Mound|MOUN0|MOUND", SiteName) ~ "Mound Spring",
+                                              grepl("Nevares|NEVA0", SiteName) ~ "Nevares Spring",
+                                              grepl("Saratoga|SARA0", SiteName) ~ "Saratoga Spring",
+                                              grepl("Texas|TEXA0", SiteName) ~ "Texas Spring",
+                                              grepl("Travertine|TRAV0", SiteName) ~ "Travertine Spring",
+                                              grepl("Boiler|BOIL0", SiteName) ~ "Boiler Spring",
+                                              grepl("Marmot|MARM0", SiteName) ~ "Marmot Spring",
+                                              grepl("Strawberry Spring|STRW0", SiteName) ~ "Strawberry Spring",
+                                              grepl("Fortynine|FORT0", SiteName) ~ "Fortynine Palms Oasis",
+                                              grepl("Smithwater|SMIT0", SiteName) ~ "Smithwater Canyon Spring",
+                                              grepl("Blue Point|BLUE0", SiteName) ~ "Blue Point Spring",
+                                              grepl("Pakoon|PAKO0", SiteName) ~ "Pakoon Spring",
+                                              grepl("Tassi|TASS0", SiteName) ~ "Tassi Spring",
+                                              TRUE ~ SiteName))
   
   # ----- ChemResults -----
   

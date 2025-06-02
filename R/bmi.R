@@ -12,7 +12,8 @@ bmiMetrics <- function(park, site, field.season) {
   metricsImport <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "BMIMetrics")
   
   metricsList <- metricsImport |>
-    dplyr::filter(AnalysisType == "Routine") |>
+    dplyr::filter(AnalysisType == "Routine",
+                  Project == "SLS") |>
     dplyr::select(-c("SampleID", "SiteName", "AnalysisType", "InvasiveSpeciesList")) |>
     dplyr::mutate(Metric = dplyr::case_when(grepl("Richness", Attribute) ~ "Richness",
                                             grepl("Density", Attribute) ~ "Density",
@@ -89,7 +90,8 @@ bmiSpecies <- function(park, site, field.season) {
   speciesImport <- ReadAndFilterData(park = park, site = site, field.season = field.season, data.name = "BMISpecies")
   
   invertList <- speciesImport |>
-    dplyr::select(-c("SampleID", "SiteName"))
+    dplyr::select(-c("SampleID", "SiteName")) |>
+    dplyr::filter(Project == "SLS")
     
   return(invertList)
 }
@@ -109,7 +111,8 @@ bmiInvasives <- function(park, site, field.season) {
   
   invasivesList <- metricsImport |>
     dplyr::select(Park, SiteCode, SubsiteCode, FieldSeason, CollectionDate, InvasiveSpeciesList) |>
-    dplyr::filter(InvasiveSpeciesList != "Absent") |>
+    dplyr::filter(InvasiveSpeciesList != "Absent",
+                  Project == "SLS") |>
     unique() |>
     dplyr::arrange(SubsiteCode, FieldSeason, CollectionDate)
   
