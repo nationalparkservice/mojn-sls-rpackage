@@ -474,7 +474,8 @@ WrangleAGOL <- function(...) {
     dplyr::rename(SiteCode = SiteGroup,
                   Order = Order_) |>
     dplyr::select(SampleID, Laboratory, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, Phylum, Class, Order, Family, SubFamily, Genus, Species, ScientificName, OTUName, LifeStage, Notes, LabCount, BigRareCount) |>
-    dplyr::arrange(SiteCode, CollectionDate)
+    dplyr::arrange(SiteCode, CollectionDate) |>
+    dplyr::filter(!(ScientificName %in% c("Actinopterygii", "Anura")))
   
   # ----- BMIMetrics -----
   
