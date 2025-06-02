@@ -495,7 +495,9 @@ WrangleAGOL <- function(...) {
     dplyr::rename(SubsiteCode = SiteCode) |>
     dplyr::rename(SiteCode = SiteGroup) |>
     dplyr::select(SampleID, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, AnalysisType, InvasiveSpeciesList, Attribute, Value) |>
-    dplyr::arrange(SiteCode, CollectionDate)
+    dplyr::arrange(SiteCode, CollectionDate) |>
+    dplyr::mutate(Value = dplyr::case_when(SiteCode %in% c("DEVA_P_SARA0_DSP", "DEVA_P_SARA0_SEV", "PARA_P_PARA0_SEV") & grepl("Density", Attribute) ~ NA,
+                                           TRUE ~ Value))
   
   # ----- BMIVisit -----
   
