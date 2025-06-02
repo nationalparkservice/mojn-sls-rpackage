@@ -525,6 +525,9 @@ WrangleAGOL <- function(...) {
                                               TRUE ~ SiteCode)) |>
     dplyr::select(SampleID, Project, Park, SiteCode, SubsiteCode, SiteName, FieldSeason, CollectionDate, AnalysisType, InvasiveSpeciesList, Attribute, Value) |>
     dplyr::arrange(SiteCode, CollectionDate) |>
+    dplyr::mutate(Attribute = dplyr::case_when(Attribute == "UniqueDominantFamilyRA" ~ "UniqueDominantFamilyRelativeAbundance",
+                                               Attribute == "UniqueDominantTaxonRA" ~ "UniqueDominantTaxonRelativeAbundance",
+                                               TRUE ~ Attribute)) |>
     dplyr::mutate(Value = dplyr::case_when(grepl("SEV|DSP", SubsiteCode) & grepl("Density", Attribute) ~ NA,
                                            TRUE ~ Value)) |>
     dplyr::mutate(SiteName = dplyr::case_when(grepl("Baker Creek|BAKR2|BAKR3", SiteName) ~ "Baker Creek",
