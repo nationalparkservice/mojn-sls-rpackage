@@ -101,7 +101,6 @@ bmiSpecies <- function(park, site, field.season) {
                                            ScientificName == "Erpobdellidae" & is.na(Class) ~ "Clitellata",
                                            ScientificName == "Collembola" & is.na(Class) ~ "Collembola",
                                            TRUE ~ Class)) |>
-    dplyr::filter(!(ScientificName %in% c("Actinopterygii", "Anura"))) |>
     dplyr::select(-c("SampleID", "SiteName"))
     
   return(invertList)
